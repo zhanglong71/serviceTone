@@ -1,0 +1,4 @@
+---- canSendRtr Æ¥Åä (3 ÔÚ 3 ÎÄ¼ş ) ----
+Main.c:			canSendRtr(rollCnt,0x34);
+SJA1000.c:void canSendRtr(unsigned char pAcr0,unsigned char pAcr1)
+SJA1000.h:SJA1000_EXT void canSendRtr(unsigned char pAcr0,unsigned char pAcr1);

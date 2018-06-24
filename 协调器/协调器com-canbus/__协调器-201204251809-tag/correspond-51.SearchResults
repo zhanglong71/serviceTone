@@ -1,0 +1,5 @@
+---- msg Æ¥Åä (4 ÔÚ 1 ÎÄ¼ş ) ----
+Main.c:unsigned int msg;
+Main.c:	msg++;
+Main.c:	if(msg==5)
+Main.c:		msg=0;

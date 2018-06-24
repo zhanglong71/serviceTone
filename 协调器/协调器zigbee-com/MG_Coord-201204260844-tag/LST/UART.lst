@@ -1,0 +1,502 @@
+C51 COMPILER V9.00   UART                                                                  05/08/2012 16:12:19 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE UART
+OBJECT MODULE PLACED IN .\HEX\UART.obj
+COMPILER INVOKED BY: C:\Keil\C51\bin\C51.EXE C_HAL\UART.c LARGE OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\LST\U
+                    -ART.lst) OBJECT(.\HEX\UART.obj)
+
+line level    source
+
+   1          /*******************************************************************************
+   2                  - Chip          : MG2450/2455
+   3                  - Vendor                : RadioPulse Inc, 2007.
+   4                  - Date          : 2009-07-15
+   5                  - Version               : VER 1.72
+   6          
+   7                  [2009-07-15] VER 1.72
+   8                  - xUn_FCR register is write-only register. So, OR-ing can cause a bug.
+   9                          xUn_FCR = 0x01;
+  10                          xUn_FCR |= 0x80;
+  11                          ==>
+  12                          xUn_FCR = 0x81;
+  13          
+  14                  [2009-03-09] VER 1.71
+  15                  - Add new baud rate(ZHAL_UART0_SET, ZHAL_UART1_SET)
+  16                          + 576000 and 1152000 @16MHz
+  17                          + 288000 and 576000 @8MHz
+  18          
+  19                  [2009-02-23] VER 1.70
+  20                  - <#if ENABLE_UART0/1 ~ #endif> is added
+  21                  - The scheme to save and restore ES0/1 is changed
+  22                  
+  23                  [2007-12-11] VER 1.60
+  24                  - BaudRate Division switch(BaudRate) {} is changed  in ZHAL_UART0_SET()
+  25                          (Because, Core Clock is changed from 16MHz to 8MHz)
+  26                  - BaudRate Division switch(BaudRate) {} is changed  in ZHAL_UART1_SET()
+  27                          (Because, Core Clock is changed from 16MHz to 8MHz)
+  28                          
+  29                  [2007-11-07] VER 1.50
+  30                  - Initial Version
+  31          *******************************************************************************/
+  32          
+  33          #include "INCLUDE_TOP.h"
+  34          
+  35          #if (ENABLE_UART0)
+  36          void ZHAL_UART0_SET(UINT8 IntEna, UINT8 Priority, UINT32 BaudRate, UINT8 Mode)  
+  37          {
+  38   1              UINT8   _EA;
+  39   1              UINT8   Div_H;
+  40   1              UINT8   Div_L;
+  41   1      
+  42   1              Mode = Mode;    
+  43   1      
+  44   1              _EA = EA;
+  45   1              EA = 0;
+  46   1              
+  47   1              PS0 = Priority;
+  48   1      
+  49   1              #if (OPERATE_AT_16MHz)
+                              switch(BaudRate) 
+                              {
+                                      case 300                :       Div_H = 0x1D;   Div_L = 0xC3;           break;
+                                      case 600                :       Div_H = 0x0E;   Div_L = 0xE1;           break;
+                                      case 1200       :       Div_H = 0x07;   Div_L = 0x71;           break;
+C51 COMPILER V9.00   UART                                                                  05/08/2012 16:12:19 PAGE 2   
+
+                                      case 2400       :       Div_H = 0x03;   Div_L = 0xB8;           break;
+                                      case 4800       :       Div_H = 0x01;   Div_L = 0xDC;           break;
+                                      case 9600       :       Div_H = 0x00;   Div_L = 0xEE;           break;
+                                      case 14400      :       Div_H = 0x00;   Div_L = 0x9F;           break;
+                                      case 19200      :       Div_H = 0x00;   Div_L = 0x77;           break;
+                                      case 38400      :       Div_H = 0x00;   Div_L = 0x3C;           break;
+                                      case 56000      :       Div_H = 0x00;   Div_L = 0x29;           break;
+                                      case 57600      :       Div_H = 0x00;   Div_L = 0x28;           break;
+                                      case 76800      :       Div_H = 0x00;   Div_L = 0x1E;           break;
+                                      case 115200     :       Div_H = 0x00;   Div_L = 0x14;           break;
+                                      case 230400     :       Div_H = 0x00;   Div_L = 0x0A;           break;
+                                      case 460800     :       Div_H = 0x00;   Div_L = 0x05;           break;
+                                      case 576000     :       Div_H = 0x00;   Div_L = 0x04;           break;
+                                      case 1152000    :       Div_H = 0x00;   Div_L = 0x02;           break;
+                                      default         :       Div_H = 0x00;   Div_L = 0xEE;           break;
+                              }
+                      #else
+  72   1                      switch(BaudRate) 
+  73   1                      {
+  74   2                              case 300                :       Div_H = 0x0E;   Div_L = 0xE1;           break;
+  75   2                              case 600                :       Div_H = 0x07;   Div_L = 0x71;           break;
+  76   2                              case 1200       :       Div_H = 0x03;   Div_L = 0xB8;           break;
+  77   2                              case 2400       :       Div_H = 0x01;   Div_L = 0xDC;           break;
+  78   2                              case 4800       :       Div_H = 0x00;   Div_L = 0xEE;           break;
+  79   2                              case 9600       :       Div_H = 0x00;   Div_L = 0x77;           break;
+  80   2                              case 14400      :       Div_H = 0x00;   Div_L = 0x4F;           break;
+  81   2                              case 19200      :       Div_H = 0x00;   Div_L = 0x3C;           break;
+  82   2                              case 38400      :       Div_H = 0x00;   Div_L = 0x1E;           break;
+  83   2                              case 56000      :       Div_H = 0x00;   Div_L = 0x14;           break;
+  84   2                              case 57600      :       Div_H = 0x00;   Div_L = 0x14;           break;
+  85   2                              case 76800      :       Div_H = 0x00;   Div_L = 0x0F;           break;
+  86   2                              case 115200     :       Div_H = 0x00;   Div_L = 0x0A;           break;
+  87   2                              case 230400     :       Div_H = 0x00;   Div_L = 0x05;           break;
+  88   2                              case 288000     :       Div_H = 0x00;   Div_L = 0x04;           break;
+  89   2                              case 576000     :       Div_H = 0x00;   Div_L = 0x02;           break;
+  90   2                              default         :       Div_H = 0x00;   Div_L = 0x77;           break;
+  91   2                      }
+  92   1              #endif
+  93   1      
+  94   1              if(IntEna == 0)
+  95   1              {
+  96   2                      Div_H = 0;
+  97   2                      Div_L = 0;
+  98   2              }
+  99   1      
+ 100   1              xU0_LCR |= 0x80;
+ 101   1              xU0_DLL = Div_L;
+ 102   1              xU0_DLM = Div_H;
+ 103   1              xU0_LCR &= 0x7F;        
+ 104   1              
+ 105   1              if(IntEna)  
+ 106   1              {
+ 107   2              //      xU0_FCR = 0x01;         // UART v1.71
+ 108   2              //      xU0_FCR |= 0x80;                // UART v1.71
+ 109   2                      xU0_FCR = 0x81;         // UART v1.72           
+ 110   2                      xU0_LCR = 0x03;         // 0000_0011    
+ 111   2                      xU0_MCR = 0x00;         // 0000_0000    
+ 112   2                      xU0_IER = 0x01;
+ 113   2                      xU0_IER |= 0x02;
+ 114   2                      ES0 = 1;
+ 115   2              }
+ 116   1              else
+C51 COMPILER V9.00   UART                                                                  05/08/2012 16:12:19 PAGE 3   
+
+ 117   1              {
+ 118   2                      xU0_IER = 0x00;         
+ 119   2                      ES0 = 0;
+ 120   2              }
+ 121   1      
+ 122   1              EA = _EA;       
+ 123   1      }
+ 124          
+ 125                  
+ 126          
+ 127          
+ 128          
+ 129          
+ 130                  UINT8   t0buf[UART0_TXBUF_SIZE];
+ 131                  UINT8   r0buf[UART0_RXBUF_SIZE];
+ 132          
+ 133                  UINT8   t0_fifo_empty = 1;
+ 134                  UINT8   t0_in = 0;
+ 135                  UINT8   t0_out = 0;
+ 136                  UINT8   r0_in = 0;
+ 137                  UINT8   r0_out = 0;
+ 138          
+ 139                  
+ 140          UINT8 ZSYS_UART0_RXLEN()
+ 141          {
+ 142   1              UINT8   _ES0;
+ 143   1              UINT8   _RFIE;
+ 144   1              UINT8   ret;
+ 145   1      
+ 146   1              _RFIE = RFIE;
+ 147   1              RFIE = 0;
+ 148   1              _ES0 = ES0;
+ 149   1              ES0 = 0;
+ 150   1              
+ 151   1              ret = (r0_in - r0_out) & (UART0_RXBUF_SIZE-1);  
+ 152   1      
+ 153   1              ES0 = _ES0;
+ 154   1              RFIE = _RFIE;
+ 155   1              
+ 156   1              return  (ret);
+ 157   1      }
+ 158          
+ 159          
+ 160          UINT8 ZSYS_UART0_TXLEN()
+ 161          {
+ 162   1              UINT8   _ES0;
+ 163   1              UINT8   _RFIE;
+ 164   1              UINT8   ret;    
+ 165   1      
+ 166   1              _RFIE = RFIE;
+ 167   1              RFIE = 0;
+ 168   1              _ES0 = ES0;
+ 169   1              ES0 = 0;        
+ 170   1      
+ 171   1              ret = (t0_in - t0_out) & (UART0_TXBUF_SIZE-1);
+ 172   1      
+ 173   1              ES0 = _ES0;
+ 174   1              RFIE = _RFIE;
+ 175   1      
+ 176   1              return  (ret);
+ 177   1      }
+ 178          
+C51 COMPILER V9.00   UART                                                                  05/08/2012 16:12:19 PAGE 4   
+
+ 179          
+ 180          void ZSYS_UART0_PUT(UINT8 c)
+ 181          {
+ 182   1              UINT8   _ES0;
+ 183   1              UINT8   _RFIE;
+ 184   1              UINT8   Len;
+ 185   1              
+ 186   1              while(1)
+ 187   1              {
+ 188   2                      Len = (UART0_TXBUF_SIZE-1);
+ 189   2                      Len = Len - ZSYS_UART0_TXLEN();
+ 190   2                      if(Len > 3)     break;  
+ 191   2              }
+ 192   1      
+ 193   1              _RFIE = RFIE;
+ 194   1              RFIE = 0;
+ 195   1              _ES0 = ES0;
+ 196   1              ES0 = 0;
+ 197   1      
+ 198   1              if(t0_fifo_empty)
+ 199   1              {
+ 200   2                      t0_fifo_empty = 0;
+ 201   2                      xU0_THR = c;
+ 202   2              }
+ 203   1              else
+ 204   1              {
+ 205   2                      t0buf[t0_in] = c;
+ 206   2                      t0_in++; 
+ 207   2                      t0_in = t0_in & (UART0_TXBUF_SIZE-1);
+ 208   2              }
+ 209   1      
+ 210   1              ES0 = _ES0;
+ 211   1              RFIE = _RFIE;   
+ 212   1              
+ 213   1      }
+ 214          
+ 215          
+ 216          UINT8 ZSYS_UART0_GET(UINT8 *pc)
+ 217          {
+ 218   1              UINT8   _ES0;
+ 219   1              UINT8   _RFIE;
+ 220   1      
+ 221   1              if(ZSYS_UART0_RXLEN() == 0)     return 0;
+ 222   1      
+ 223   1              _RFIE = RFIE;
+ 224   1              RFIE = 0;
+ 225   1              _ES0 = ES0;
+ 226   1              ES0 = 0;
+ 227   1              
+ 228   1              *pc = r0buf[r0_out++];  
+ 229   1              r0_out = r0_out & (UART0_RXBUF_SIZE-1);
+ 230   1      
+ 231   1              ES0 = _ES0;
+ 232   1              RFIE = _RFIE;
+ 233   1              
+ 234   1              return 1;
+ 235   1      }
+ 236          
+ 237          
+ 238          //-- RETURN
+ 239          //      1       : UART0-TX is working
+ 240          //      0       : UART0-TX is idle
+C51 COMPILER V9.00   UART                                                                  05/08/2012 16:12:19 PAGE 5   
+
+ 241          /*UINT8 ZSYS_UART0_TX_WORKING()
+ 242          {
+ 243                  UINT8   Working;
+ 244          
+ 245                  Working = 0;
+ 246                  if(t0_fifo_empty==0)            Working = 1;
+ 247                  if( (xU0_LSR & 0x20) == 0)      Working = 1;
+ 248          
+ 249                  return  Working;
+ 250          }*/
+ 251          #endif
+ 252          
+ 253          
+ 254          #if (ENABLE_UART1)
+ 255          // BaudRate = SystemClock(8MHz) / (7 * Divisor)
+ 256          void ZHAL_UART1_SET(UINT8 IntEna, UINT8 Priority, UINT32 BaudRate, UINT8 Mode) 
+ 257          {
+ 258   1              UINT8   _EA;
+ 259   1              UINT8   Div_H;
+ 260   1              UINT8   Div_L;
+ 261   1      
+ 262   1              Mode = Mode;
+ 263   1              
+ 264   1              _EA = EA;
+ 265   1              EA = 0;
+ 266   1              
+ 267   1              PS1 = Priority;
+ 268   1      
+ 269   1              #if (OPERATE_AT_16MHz)
+                              switch(BaudRate) 
+                              {
+                                      case 300                :       Div_H = 0x1D;   Div_L = 0xC3;           break;
+                                      case 600                :       Div_H = 0x0E;   Div_L = 0xE1;           break;
+                                      case 1200       :       Div_H = 0x07;   Div_L = 0x71;           break;
+                                      case 2400       :       Div_H = 0x03;   Div_L = 0xB8;           break;
+                                      case 4800       :       Div_H = 0x01;   Div_L = 0xDC;           break;
+                                      case 9600       :       Div_H = 0x00;   Div_L = 0xEE;           break;
+                                      case 14400      :       Div_H = 0x00;   Div_L = 0x9F;           break;
+                                      case 19200      :       Div_H = 0x00;   Div_L = 0x77;           break;
+                                      case 38400      :       Div_H = 0x00;   Div_L = 0x3C;           break;
+                                      case 56000      :       Div_H = 0x00;   Div_L = 0x29;           break;
+                                      case 57600      :       Div_H = 0x00;   Div_L = 0x28;           break;
+                                      case 76800      :       Div_H = 0x00;   Div_L = 0x1E;           break;
+                                      case 115200     :       Div_H = 0x00;   Div_L = 0x14;           break;
+                                      case 230400     :       Div_H = 0x00;   Div_L = 0x0A;           break;
+                                      case 460800     :       Div_H = 0x00;   Div_L = 0x05;           break;
+                                      case 576000     :       Div_H = 0x00;   Div_L = 0x04;           break;
+                                      case 1152000    :       Div_H = 0x00;   Div_L = 0x02;           break;
+                                      default         :       Div_H = 0x00;   Div_L = 0xEE;           break;
+                              }
+                      #else
+ 292   1                      switch(BaudRate) 
+ 293   1                      {
+ 294   2                              case 300                :       Div_H = 0x0E;   Div_L = 0xE1;           break;
+ 295   2                              case 600                :       Div_H = 0x07;   Div_L = 0x71;           break;
+ 296   2                              case 1200       :       Div_H = 0x03;   Div_L = 0xB8;           break;
+ 297   2                              case 2400       :       Div_H = 0x01;   Div_L = 0xDC;           break;
+ 298   2                              case 4800       :       Div_H = 0x00;   Div_L = 0xEE;           break;
+ 299   2                              case 9600       :       Div_H = 0x00;   Div_L = 0x77;           break;
+ 300   2                              case 14400      :       Div_H = 0x00;   Div_L = 0x4F;           break;
+ 301   2                              case 19200      :       Div_H = 0x00;   Div_L = 0x3C;           break;
+ 302   2                              case 38400      :       Div_H = 0x00;   Div_L = 0x1E;           break;
+C51 COMPILER V9.00   UART                                                                  05/08/2012 16:12:19 PAGE 6   
+
+ 303   2                              case 56000      :       Div_H = 0x00;   Div_L = 0x14;           break;
+ 304   2                              case 57600      :       Div_H = 0x00;   Div_L = 0x14;           break;
+ 305   2                              case 76800      :       Div_H = 0x00;   Div_L = 0x0F;           break;
+ 306   2                              case 115200     :       Div_H = 0x00;   Div_L = 0x0A;           break;
+ 307   2                              case 230400     :       Div_H = 0x00;   Div_L = 0x05;           break;
+ 308   2                              case 288000     :       Div_H = 0x00;   Div_L = 0x04;           break;
+ 309   2                              case 576000     :       Div_H = 0x00;   Div_L = 0x02;           break;
+ 310   2                              default         :       Div_H = 0x00;   Div_L = 0x77;           break;
+ 311   2                      }
+ 312   1              #endif
+ 313   1              
+ 314   1              if(IntEna == 0)
+ 315   1              {
+ 316   2                      Div_H = 0;
+ 317   2                      Div_L = 0;
+ 318   2              }
+ 319   1      
+ 320   1              xU1_LCR |= 0x80;
+ 321   1              xU1_DLL = Div_L;
+ 322   1              xU1_DLM = Div_H;
+ 323   1              xU1_LCR &= 0x7F;        
+ 324   1              
+ 325   1              if(IntEna)  
+ 326   1              {               
+ 327   2              //      xU1_FCR = 0x01;         // UART v1.71
+ 328   2              //      xU1_FCR |= 0x80;                // UART v1.71
+ 329   2                      xU1_FCR = 0x81;         // UART v1.72
+ 330   2                      xU1_LCR = 0x03;         // 0000_0011    
+ 331   2                      xU1_MCR = 0x00;         // 0000_0000    
+ 332   2                      xU1_IER = 0x01;         
+ 333   2                      xU1_IER |= 0x02;                
+ 334   2                      ES1 = 1;
+ 335   2              }
+ 336   1              else
+ 337   1              {
+ 338   2                      xU1_IER = 0x00;         
+ 339   2                      ES1 = 0;
+ 340   2              }
+ 341   1      
+ 342   1              EA = _EA;       
+ 343   1      }
+ 344          
+ 345          
+ 346                  UINT8   t1buf[UART1_TXBUF_SIZE];
+ 347                  UINT8   r1buf[UART1_RXBUF_SIZE];
+ 348          
+ 349                  UINT8   t1_fifo_empty = 1;
+ 350                  UINT8   t1_in = 0;
+ 351                  UINT8   t1_out = 0;
+ 352                  UINT8   r1_in = 0;
+ 353                  UINT8   r1_out = 0;
+ 354          
+ 355          
+ 356          UINT8 ZSYS_UART1_RXLEN()
+ 357          {
+ 358   1              UINT8   _ES1;
+ 359   1              UINT8   _RFIE;
+ 360   1              UINT8   ret;
+ 361   1      
+ 362   1              _RFIE = RFIE;
+ 363   1              RFIE = 0;
+ 364   1              _ES1 = ES1;
+C51 COMPILER V9.00   UART                                                                  05/08/2012 16:12:19 PAGE 7   
+
+ 365   1              ES1 = 0;
+ 366   1      
+ 367   1              ret = (r1_in - r1_out) & (UART1_RXBUF_SIZE-1);
+ 368   1      
+ 369   1              ES1 = _ES1;
+ 370   1              RFIE = _RFIE;
+ 371   1      
+ 372   1              return  (ret);
+ 373   1      }
+ 374          
+ 375          
+ 376          UINT8 ZSYS_UART1_TXLEN()
+ 377          {
+ 378   1              UINT8   _ES1;
+ 379   1              UINT8   _RFIE;
+ 380   1              UINT8   ret;
+ 381   1      
+ 382   1              _RFIE = RFIE;
+ 383   1              RFIE = 0;
+ 384   1              _ES1 = ES1;
+ 385   1              ES1 = 0;
+ 386   1      
+ 387   1              ret = (t1_in - t1_out) & (UART1_TXBUF_SIZE-1);
+ 388   1      
+ 389   1              ES1 = _ES1;
+ 390   1              RFIE = _RFIE;
+ 391   1      
+ 392   1              return  (ret);
+ 393   1      }
+ 394          
+ 395          void ZSYS_UART1_PUT(UINT8 c)
+ 396          {
+ 397   1              UINT8   _ES1;
+ 398   1              UINT8   _RFIE;
+ 399   1              UINT8   Len;
+ 400   1      
+ 401   1              while(1)
+ 402   1              {
+ 403   2                      Len = (UART1_TXBUF_SIZE-1);
+ 404   2                      Len = Len - ZSYS_UART1_TXLEN();
+ 405   2                      if(Len > 3)     break;
+ 406   2              }
+ 407   1      
+ 408   1              _RFIE = RFIE;
+ 409   1              RFIE = 0;
+ 410   1              _ES1 = ES1;
+ 411   1              ES1 = 0;
+ 412   1      
+ 413   1              if(t1_fifo_empty)
+ 414   1              {
+ 415   2                      t1_fifo_empty = 0;
+ 416   2                      xU1_THR = c;
+ 417   2              }
+ 418   1              else
+ 419   1              {
+ 420   2                      t1buf[t1_in] = c;
+ 421   2                      t1_in++; 
+ 422   2                      t1_in = t1_in & (UART1_TXBUF_SIZE-1) ;
+ 423   2              }
+ 424   1      
+ 425   1              ES1 = _ES1;
+ 426   1              RFIE = _RFIE;
+C51 COMPILER V9.00   UART                                                                  05/08/2012 16:12:19 PAGE 8   
+
+ 427   1      }
+ 428          
+ 429          UINT8 ZSYS_UART1_GET(UINT8 *pc)
+ 430          {
+ 431   1              UINT8   _ES1;
+ 432   1              UINT8   _RFIE;
+ 433   1              
+ 434   1              if(ZSYS_UART1_RXLEN() == 0)     return 0;
+ 435   1      
+ 436   1              _RFIE = RFIE;
+ 437   1              RFIE = 0;
+ 438   1              _ES1 = ES1;
+ 439   1              ES1 = 0;
+ 440   1      
+ 441   1              *pc = r1buf[r1_out++]; 
+ 442   1              r1_out = r1_out & (UART1_RXBUF_SIZE-1);
+ 443   1      
+ 444   1              ES1 = _ES1;
+ 445   1              RFIE = _RFIE;
+ 446   1      
+ 447   1              return 1;
+ 448   1      }
+ 449          
+ 450          //-- RETURN
+ 451          //      1       : UART1-TX is working
+ 452          //      0       : UART1-TX is idle
+ 453          /*UINT8 ZSYS_UART1_TX_WORKING()
+ 454          {
+ 455                  UINT8   Working;
+ 456          
+ 457                  Working = 0;
+ 458                  if(t1_fifo_empty==0)            Working = 1;
+ 459                  if( (xU1_LSR & 0x20) == 0)      Working = 1;
+ 460          
+ 461                  return  Working;
+ 462          }*/
+ 463          
+ 464          #endif
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1138    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =    522      20
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,389 @@
+//--------------------------------------------------
+//PeliCAN模式，标准帧
+//RS232波特率：57600
+//CAN波特率：125kbps
+//设置ID在18行
+//--------------------------------------------------
+#define MAIN_GLOBALS
+#include <includes.h>
+//#define INBUF_LEN 10   //数据长度
+//sfr WDT_CONTR = 0xC1; //Watch-Dog-Timer Control register
+unsigned char data Tmod_data;
+unsigned char run_lamp_flush_count = 0;
+unsigned char run_lamp_flush_time = 10;
+sbit  run_lamp = P1^0;
+unsigned char CanRevceData[80],ComRevceData[80],RxData_Buf[10];
+//unsigned int data rxbuffer[10]={REG_RXBuffer1,REG_RXBuffer2,REG_RXBuffer3,REG_RXBuffer4,REG_RXBuffer5,REG_RXBuffer6,REG_RXBuffer7,REG_RXBuffer8,REG_RXBuffer9,REG_RXBuffer10};
+//unsigned int data txbuffer[10]={REG_TXBuffer1,REG_TXBuffer2,REG_TXBuffer3,REG_TXBuffer4,REG_TXBuffer5,REG_TXBuffer6,REG_TXBuffer7,REG_TXBuffer8,REG_TXBuffer9,REG_TXBuffer10};
+//unsigned char data Send_CAN_Info_ID[5]={0x08,0x55,0xe0,0x55,0x55};
+//unsigned char data Send_CAN_Info_ID[5]={0x01,0x55,0xe0,0x55,0x55};
+//unsigned char data Com_RecBuff[8]={0x01,0x02,0x03,0x4,0x05,0x06,0x07,0x08};
+unsigned char data Com_RecBuff[8];
+unsigned char bdata flag_init;
+//*************************
+#define INBUF_LEN 8   //数据长度
+
+unsigned char inbuf1[80];
+unsigned char checksum,count3=0;
+bit  overtimer_flag=0;read_flag=0;
+//***************************
+sbit rcv_flag=flag_init^0;
+sbit err_flag=flag_init^0;
+sbit CS=P2^7;
+sbit RSTCAN=P1^6;
+sbit LED1=P3^5;
+sbit LED2=P3^4;
+sbit Pin_test=P3^3;
+sbit k1=P1^1;
+sbit k2=P1^2;
+sbit k3=P1^3;
+sbit k4=P1^4;
+unsigned char RECOK;
+unsigned int msg;
+unsigned int CntMainTimeout;
+bit flag_CanMainTimeout;
+bit flag_CanReset;
+void delay(unsigned int us)   //delay time
+{
+  	while(us--)
+  	{
+  		_nop_();
+  		WDT_CONTR=0x3b;  //喂狗 1.13s;
+  	}
+}
+void delay1(unsigned int ms)
+{
+  	unsigned int i,j;
+  	for(i=0;i<ms;i++)
+  	for(j=0;j<15;j++)
+  	delay(1);
+}
+
+///--------------------------------------------------
+//函数原型: void init_serialcomm(void)
+//参数说明: 串口初始化
+//说明:     设值单片机的定时器1的方式选择波特率 。该子程序只能用于复位模式                      
+//--------------------------------------------------
+void init_serialcomm(void)
+{
+    SCON = 0x50;		   			//串口工作在模式1,速率57600bps
+	  PCON |= 0x80;       //SMOD=1; 
+ 	  TMOD = 0x21;
+	  TH1  = 0xff;
+	  TL1  = 0xfa;
+ 	  TR1  = 1;
+    //IE   |= 0x90;       //Enable Serial Interrupt 
+    TR1   = 1;          // timer 1 run
+    ES=1;
+}
+//定时器0初始化
+void	T0_Ini() reentrant using 0		//定时器0初始化,10ms中断一次
+{
+	TR0	= 0;
+	TF0	= 0;
+	TH0	= 0xdc;
+	TL0	= 0x31;
+	TR0	= 1;
+	ET0	= 1;
+}
+//向串口发送一个字符 
+void send_char_com(unsigned char ch)  
+{
+    LED1=0;
+	SBUF=ch;
+    while(!TI);
+    TI=0;
+	LED1=1;
+}
+
+//向串口发送一个字符串，strlen为该字符串长度 
+void send_string_com(unsigned char *str,unsigned int strlen)
+{
+    unsigned int k=0;
+    do 
+    {
+        send_char_com(*(str + k));
+        k++;
+        WDT_CONTR=0x3b;  //喂狗 1.13s;
+    } while(k < strlen);
+}
+void send_addr_com(unsigned char ch)
+{
+	send_char_com('H');
+  send_char_com('u');
+  send_char_com('a');
+  send_char_com('R');
+  send_char_com('a');
+  send_char_com('i');
+  send_char_com('n');
+  send_char_com(ch);
+}
+//定时器0中断,不够8个就在此发送
+void T0_int(void) interrupt INT_T0		//10ms进入中断一次.
+{
+	//INT8U cntKeyBuf[5];          //键盘缓冲环计数数组.
+	//INT8U key_temp;
+	//INT8U i,j;
+	TH0	= 0xdc;
+	TL0	= 0x31;
+	Pin_test=!Pin_test;
+	CntComRxTimout++;
+	if(CntComRxTimout>=5)          //串口数据接收30ms超时
+	{
+		CntComRxTimout=6;
+		flag_CntComRxTimeout=1;
+		flag_ComRxFinish=0;
+    flag_ComRxFirst=1;
+    ComRxLength=0;
+    CntComRxData=0;
+	}
+	CntCanTxTimeout++;
+	if(CntCanTxTimeout>=50)          //CAN数据发送500ms超时
+	{
+		CntCanTxTimeout=51;
+		flag_CanTxTimeout=1;
+	}
+	CntCanRxTimeout++;
+	if(CntCanRxTimeout>=50)          //CAN数据接收500ms超时
+	{
+		CntCanRxTimeout=51;
+		flag_CanRxTimeout=1;
+	}
+	CntMainTimeout++;
+	if(CntMainTimeout>=500)          //CAN5s没有数据接收时复位
+	{
+		CntMainTimeout=501;
+		flag_CanMainTimeout=1;
+	}
+}
+//串口接收中断函数 
+void serial () interrupt 4 using 1 
+{
+	unsigned char ch;
+  if(RI&&(flag_ComTxAddr==0)&&(flag_ComRxFinish==0))
+  {
+  	RI = 0;
+  	ET0=1;TR0=1;
+    ch=SBUF;
+    LED1=0;
+    CntComRxTimout=0;
+    if(flag_ComRxFirst==1)
+    {
+    	ComRxLength=ch;
+    	flag_ComRxFirst=0;
+    	CntComRxData=0;
+    }
+    else
+    {
+    	ComRevceData[CntComRxData]=ch;
+    	CntComRxData++;
+    	if(CntComRxData>=ComRxLength)
+    	{
+    		flag_ComRxFinish=1;
+    		if((ComRxLength==1)&&(ch==0xf3))
+    		{
+    			flag_ComTxAddr=1;
+    		  flag_ComRxFinish=0;
+          flag_ComRxFirst=1;
+          ComRxLength=0;
+          CntComRxData=0;
+    		}
+    	}
+    }
+  }
+	LED1=1;
+}
+//--------------------------------------------------
+//函数原型：  void ex0_int(void) interrupt 0 //using 1
+//功    能：  中断接收函数
+//入口参数:   无 
+//出口参数:   RevceData[]数组   
+//说    明:   当sja1000 收到正确的报文时,会产生int中断           
+//--------------------------------------------------
+void ex0_int(void) interrupt 0 using 1
+{
+	unsigned char tt,tt1,length,i;
+	i=0;
+	msg++;
+	CntMainTimeout=0;
+	flag_CanMainTimeout=0;
+	if(msg==5)
+	{
+		msg=0;
+    //P34=0;
+  }
+  LED2=0;
+  SJA_BCANAdr=REG_INTERRUPT;
+  if((*SJA_BCANAdr)&0x01)//产生了接收中断,并且CAN接收完成已经清零
+  {
+  	SJA_BCANAdr=REG_RXBuffer1;
+    tt=*SJA_BCANAdr;
+    tt1=*SJA_BCANAdr;
+    length=tt1&0x0F;
+    if ((tt&0x40)!=0x40)                   //数据帧   假= 为远程帧
+    {
+    	SJA_BCANAdr =REG_RXBuffer2;          //宏定义的变量不能memcpy(CanRevceData,REG_RXBuffer4,8);
+    	memcpy(RxData_Buf,SJA_BCANAdr,length+2);//功能：由src所指内存区域复制count个字节到dest所指内存区域
+    	//for(i=0;i<length+2;i++)send_char_com(CanRevceData[i]);//发送到串口
+    }
+    BCAN_CMD_PRG(RRB_CMD);                  //释放SJA1000接收缓冲区，****已经修改
+    if(((RxData_Buf[0]!=key_temp)&&(RxData_Buf[0]!=0x55))||(flag_CanRxFinish==1))
+    {
+    	LED2=1;
+    	return;
+    }
+    if(RxData_Buf[2]==0)   //数据开始字节
+    {
+    	flag_CanRxHead=1;
+    	CntCanRxTimeout=0;
+    	flag_CanRxTimeout=0;
+    }
+    if(flag_CanRxTimeout==1) //接收超时
+    {
+    	flag_CanRxHead=0;
+    	flag_CanRxFinish=0;
+    	LED2=1;
+    	return;
+    }
+    if(RxData_Buf[2]==0xff) //数据结束字节
+    {
+    	if(flag_CanRxHead==1)
+    	{
+    		flag_CanRxFinish=1;
+    		flag_CanRxHead=0;
+    		if(RxData_buf[0]==0x55)
+    		{
+    			flag_CanReset=1;
+    		}
+    	}
+    	else
+    	{
+    		flag_CanRxHead=0;
+    		flag_CanRxFinish=0;
+    	}
+    	LED2=1;
+    	return;
+    }
+    memcpy(&CanRevceData[RxData_Buf[2]*7],&RxData_Buf[3],length-1);
+    CntCanRxLength=RxData_Buf[2]*7+length-1;
+    CntCanRxTimeout=0;
+    flag_CanRxTimeout=0;
+  }
+  LED2=1;
+}
+//--------------------------------------------------
+
+//初始化cpu
+
+//--------------------------------------------------
+void Init_Cpu(void)                                  //单片机初始化,开放外部中断0
+{
+     PX0=1;
+     EX0=1;
+     IT0=0;
+    // EA=1;
+}
+
+//--------------------------------------------------
+//函数原型：   void main(void)
+
+void main(void)
+{
+  unsigned char ss,i;
+  unsigned char temptt;
+  unsigned char i_buf;
+_reset_line: 
+  i_buf=0;
+	i=0;
+	CS=1;                //片选择引脚
+  EA=0;
+  k1=1;
+  k2=1;
+  k3=1;
+  k4=1;
+  CntMainTimeout=0;
+	flag_CanMainTimeout=0;
+  key_temp=0;
+  _nop_();
+	_nop_();
+	_nop_();
+	_nop_();
+	if(k1)key_temp|=0x01;else key_temp&=0xfe;
+	if(k2)key_temp|=0x02;else key_temp&=0xfd;
+	if(k3)key_temp|=0x04;else key_temp&=0xfb;
+	if(k4)key_temp|=0x08;else key_temp&=0xf7;
+  RSTCAN=0;
+  delay1(500);
+  RSTCAN=1;
+  Init_Cpu();
+  init_serialcomm();     //初始化串口 
+  T0_Ini();       //定时器0初始化
+  //初始化SJA1000
+  ss=Sja_1000_Init();
+  WDT_CONTR=0x3b;  //喂狗 1.13s;
+  if(ss!=0)             //初始化失败
+  {
+  	ss=Sja_1000_Init();
+  	LED1=0;
+	  LED2=0;
+	  WDT_CONTR=0x3b;  //喂狗 1.13s;
+	}
+	LED2=1;
+	LED1=1;
+	flag_ComRxFinish=0;
+  flag_ComRxFirst=1;
+  ComRxLength=0;
+  CntComRxData=0;
+  CntComRxTimout=0;
+  flag_ComTxAddr=0;
+  flag_CanRxFinish=0;
+  EA=1; //初始化成功，开总中断
+  while(1)
+  {
+   	WDT_CONTR=0x3b;  //喂狗 1.13s;
+    //--------------------------------------------------
+    if(flag_CanReset==1)
+    {
+    	LED1=0;
+    	LED2=0;
+    	while(1);
+    	goto _reset_line;
+    }
+    if(flag_CanMainTimeout==1)
+    {
+    	LED1=0;
+    	LED2=0;
+    	while(1);
+    	goto _reset_line;
+    }
+    if(flag_ComRxFinish==1)      //如果取数标志已置位，就将读到的数从串口发出
+    {
+    	CAN_Send_Large(ComRevceData,ComRxLength);
+    	flag_ComRxFinish=0;
+    	flag_ComRxFirst=1;
+    }
+    if(flag_ComTxAddr==1)
+    {
+    	flag_ComTxAddr=0;
+    	send_addr_com(key_temp);
+    }
+    if(flag_CanRxFinish==1)
+    {
+    	flag_CanRxFinish=0;
+    	flag_CanRxHead=0;
+    	send_string_com(CanRevceData,CntCanRxLength);
+    }
+    //--------------------------------------------------
+    SJA_BCANAdr = REG_STATUS;    
+    temptt=*SJA_BCANAdr;
+    if ((temptt&0x40)==0x40)                     //读错误状态有错误时复位
+    {
+    	WDT_CONTR=0x3b;  //喂狗 1.13s;
+    	LED1=0;
+    	LED2=0;
+    	Sja_1000_Init();
+    }
+  }
+}
+
+

@@ -1,0 +1,677 @@
+C51 COMPILER V9.00   MAIN                                                                  05/08/2012 16:11:04 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE main.c LARGE BROWSE DEBUG OBJECTEXTEND
+
+line level    source
+
+   1          //--------------------------------------------------
+   2          //PeliCAN模式，标准帧
+   3          //RS232波特率：57600
+   4          //CAN波特率：125kbps
+   5          //设置ID在18行
+   6          //--------------------------------------------------
+   7          #define MAIN_GLOBALS
+   8          #include <includes.h>
+   9          #define MAX_BUF_NUM     256
+  10          #define COM_RX_NONE     0x00 //空数据
+  11          #define COM_RX_DATA     0x01 //接收到数据
+  12          #define COM_RX_DCONFIRM 0x02 //接收到数据确认
+  13          #define COM_RX_ASKCHN   0x03 //接收到数据确认
+  14          
+  15          #define CTIMER_MS       (10)
+  16          
+  17          #define CSEND_BUF_NUM   8       //16     //缓冲区个数
+  18          #define CSEND_BUF_SIZE  128     //64     //缓冲区大小
+  19          //#define INBUF_LEN 10   //数据长度
+  20          //sfr WDT_CONTR = 0xC1; //Watch-Dog-Timer Control register
+  21          unsigned char comSendDataBuf[MAX_BUF_NUM];
+  22          unsigned char Can2ComBuf[CSEND_BUF_NUM][CSEND_BUF_SIZE];                //暂存来自canbus转发给com串口的数据(CANbus ==> c
+             -om)
+  23          unsigned char Com2CanBuf[CSEND_BUF_NUM][CSEND_BUF_SIZE];                //暂存来自com串口转发给CAN的数据(com ==> CANbus)
+  24          
+  25          #define CWAITACK_ID     1
+  26          #define CLENGTH_ID      3
+  27          #define CSTART_ID       (CLENGTH_ID + 1)
+  28          //unsigned char cntComSendIndex;
+  29          unsigned int comSendLength;
+  30          unsigned char comRxDataBuf[MAX_BUF_NUM];
+  31          unsigned int comRxLength;
+  32          unsigned int cntComRxIndex;
+  33          unsigned int comSnd_timer;
+  34          unsigned int canSnd_timer;
+  35          unsigned char cntComRxTimeout;
+  36          unsigned char flag_com_rx_finish;
+  37          unsigned char staComRx;
+  38          unsigned char flag_canRxRoll;
+  39          
+  40          unsigned char data Tmod_data;
+  41          unsigned char run_lamp_flush_count = 0;
+  42          unsigned char run_lamp_flush_time = 10;
+  43          sbit  run_lamp = P1^0;
+  44          unsigned char CanRevceData[MAX_BUF_NUM],RxData_Buf[10];
+  45          //unsigned int data rxbuffer[10]={REG_RXBuffer1,REG_RXBuffer2,REG_RXBuffer3,REG_RXBuffer4,REG_RXBuffer5,RE
+             -G_RXBuffer6,REG_RXBuffer7,REG_RXBuffer8,REG_RXBuffer9,REG_RXBuffer10};
+  46          //unsigned int data txbuffer[10]={REG_TXBuffer1,REG_TXBuffer2,REG_TXBuffer3,REG_TXBuffer4,REG_TXBuffer5,RE
+             -G_TXBuffer6,REG_TXBuffer7,REG_TXBuffer8,REG_TXBuffer9,REG_TXBuffer10};
+  47          //unsigned char data Send_CAN_Info_ID[5]={0x08,0x55,0xe0,0x55,0x55};
+  48          //unsigned char data Send_CAN_Info_ID[5]={0x01,0x55,0xe0,0x55,0x55};
+  49          //unsigned char data Com_RecBuff[8]={0x01,0x02,0x03,0x4,0x05,0x06,0x07,0x08};
+  50          unsigned char data Com_RecBuff[8];
+  51          unsigned char bdata flag_init;
+  52          //*************************
+C51 COMPILER V9.00   MAIN                                                                  05/08/2012 16:11:04 PAGE 2   
+
+  53          #define INBUF_LEN 8   //数据长度
+  54          
+  55          unsigned char inbuf1[80];
+  56          unsigned char checksum,count3=0;
+  57          bit  overtimer_flag=0;read_flag=0;
+  58          //***************************
+  59          sbit rcv_flag=flag_init^0;
+  60          sbit err_flag=flag_init^0;
+  61          sbit CS=P2^7;
+  62          sbit RSTCAN=P1^6;
+  63          sbit LED1=P3^5;
+  64          sbit LED2=P3^4;
+  65          sbit Pin_test=P3^3;
+  66          sbit k1=P1^1;
+  67          sbit k2=P1^2;
+  68          sbit k3=P1^3;
+  69          sbit k4=P1^4;
+  70          unsigned char RECOK;
+  71          unsigned int msg;
+  72          unsigned int CntMainTimeout;
+  73          bit flag_CanMainTimeout;
+  74          bit flag_CanReset;
+  75          #include <bytemapOp.c>
+  76          void delay(unsigned int us)   //delay time
+  77          {
+  78   1              while(us--)
+  79   1              {
+  80   2                      _nop_();
+  81   2                      WDT_CONTR=0x3b;  //喂狗 1.13s;
+  82   2              }
+  83   1      }
+  84          void delay1(unsigned int ms)
+  85          {
+  86   1              unsigned int i,j;
+  87   1              for(i=0;i<ms;i++)
+  88   1              for(j=0;j<15;j++)
+  89   1              delay(1);
+  90   1      }
+  91          
+  92          /****************************************************
+  93           * 
+  94           * sendBuf_clean
+  95           *
+  96           *
+  97           ************************************************/
+  98          void sendBuf_clean(void)
+  99          {
+ 100   1              unsigned int i, j;
+ 101   1              
+ 102   1              for(i = 0; i < CSEND_BUF_NUM; i++)
+ 103   1              {
+ 104   2                      for(j = 0; j < CSEND_BUF_SIZE; j++)
+ 105   2                      {
+ 106   3                              Com2CanBuf[i][j] = 0;
+ 107   3                              Can2ComBuf[i][j] = 0;
+ 108   3                      }
+ 109   2              }
+ 110   1      }
+ 111          /****************************************************
+ 112           * 找一个空的项，作为存入数据的地点 
+ 113           * function name: findEmptyIndex
+ 114           * input: 
+C51 COMPILER V9.00   MAIN                                                                  05/08/2012 16:11:04 PAGE 3   
+
+ 115           * output:
+ 116           * return: index
+ 117           * No change buffer
+ 118           *
+ 119           ****************************************************/
+ 120          unsigned int findEmptyIndex(unsigned char buf[CSEND_BUF_NUM][CSEND_BUF_SIZE])
+ 121          {
+ 122   1              unsigned int i;
+ 123   1      
+ 124   1              /** find empty one **/
+ 125   1              for(i = 0; i < CSEND_BUF_NUM; i++)
+ 126   1              {
+ 127   2                      if(buf[i][0] == 0)
+ 128   2                      {
+ 129   3                              buf[i][0] = 1;
+ 130   3                              return  i;
+ 131   3                      }
+ 132   2              }
+ 133   1              /** 超过范围，出错 **/
+ 134   1              return  0xff;
+ 135   1      }
+ 136          
+ 137          /****************************************************
+ 138           * 找一个有数据的项，准备发送数据
+ 139           * sendCanBuf_send
+ 140           *
+ 141           ****************************************************/
+ 142          unsigned int findBusyIndex(unsigned char buf[][CSEND_BUF_SIZE])
+ 143          {
+ 144   1              unsigned int i;
+ 145   1              
+ 146   1          for(i = 0; i < CSEND_BUF_NUM; i++)
+ 147   1          {
+ 148   2              if(buf[i][0] != 0)
+ 149   2              {
+ 150   3                      buf[i][0] = 0;
+ 151   3                      return  i;
+ 152   3                      }
+ 153   2              }
+ 154   1      
+ 155   1              /** 超过范围，出错 **/
+ 156   1              return  0xff;
+ 157   1      }
+ 158          #if     0
+              void setEmptyIndex(unsigned char buf[CSEND_BUF_NUM][CSEND_BUF_SIZE], unsigned int index)
+              {
+                      EA = 0;
+                      buf[index][0] = 0;
+                      EA = 1;
+              }
+              #endif
+ 166          /*******************************************************************************/
+ 167          void setTimer(unsigned char TimerNum, unsigned int TickCount)
+ 168          {
+ 169   1              unsigned char   _EA;
+ 170   1      
+ 171   1              _EA = EA;
+ 172   1              EA = 0;
+ 173   1      
+ 174   1              if(TimerNum == 0)               comSnd_timer = TickCount;
+ 175   1              else if(TimerNum == 1)  canSnd_timer = TickCount;
+ 176   1              //else if(TimerNum == 2)        UserTimer2 = TickCount;
+C51 COMPILER V9.00   MAIN                                                                  05/08/2012 16:11:04 PAGE 4   
+
+ 177   1              //else if(TimerNum == 3)        UserTimer3 = TickCount;
+ 178   1      
+ 179   1              EA = _EA;
+ 180   1      }
+ 181          unsigned int getTimer(unsigned char TimerNum)
+ 182          {
+ 183   1              unsigned int    ReturnTick;
+ 184   1              unsigned char   _EA;
+ 185   1      
+ 186   1              _EA = EA;
+ 187   1              EA = 0;
+ 188   1      
+ 189   1              if(TimerNum == 0)               ReturnTick = comSnd_timer;
+ 190   1              else if(TimerNum == 1)  ReturnTick = canSnd_timer;
+ 191   1              //else if(TimerNum == 2)        ReturnTick = UserTimer2;
+ 192   1              //else if(TimerNum == 3)        ReturnTick = UserTimer3;
+ 193   1              else                                            ReturnTick = 0;
+ 194   1      
+ 195   1              EA = _EA;
+ 196   1      
+ 197   1              return  ReturnTick;
+ 198   1      }
+ 199          ///--------------------------------------------------
+ 200          //函数原型: void init_serialcomm(void)
+ 201          //参数说明: 串口初始化
+ 202          //说明:     设值单片机的定时器1的方式选择波特率 。该子程序只能用于复位模式                      
+ 203          //--------------------------------------------------
+ 204          void init_serialcomm(void)
+ 205          {
+ 206   1          SCON = 0x50;                                        //串口工作在模式1,速率57600bps
+ 207   1                PCON |= 0x80;       //SMOD=1; 
+ 208   1                TMOD = 0x21;
+ 209   1                TH1  = 0xff;
+ 210   1                TL1  = 0xfa;
+ 211   1                TR1  = 1;
+ 212   1          //IE   |= 0x90;       //Enable Serial Interrupt 
+ 213   1          TR1   = 1;          // timer 1 run
+ 214   1          ES=1;
+ 215   1      }
+ 216          //定时器0初始化
+ 217          void    T0_Ini() reentrant using 0              //定时器0初始化,10ms中断一次
+ 218          {
+ 219   1              TR0     = 0;
+ 220   1              TF0     = 0;
+ 221   1              TH0     = 0xdc;
+ 222   1              TL0     = 0x31;
+ 223   1              TR0     = 1;
+ 224   1              ET0     = 1;
+ 225   1      }
+ 226          //向串口发送一个字符 
+ 227          void send_char_com(unsigned char ch)  
+ 228          {
+ 229   1          LED1=0;
+ 230   1              SBUF=ch;
+ 231   1          while(!TI);
+ 232   1          TI=0;
+ 233   1              LED1=1;
+ 234   1      }
+ 235          
+ 236          //向串口发送一个字符串，strlen为该字符串长度 
+ 237          void send_string_com(unsigned char *str,unsigned int strlen)
+ 238          {
+C51 COMPILER V9.00   MAIN                                                                  05/08/2012 16:11:04 PAGE 5   
+
+ 239   1          unsigned int k=0;
+ 240   1          do 
+ 241   1          {
+ 242   2              send_char_com(*(str + k));
+ 243   2              k++;
+ 244   2              WDT_CONTR=0x3b;  //喂狗 1.13s;
+ 245   2          } while(k < strlen);
+ 246   1      }
+ 247          //定时器0中断,不够8个就在此发送
+ 248          void T0_int(void) interrupt INT_T0              //10ms进入中断一次.
+ 249          {
+ 250   1              //INT8U cntKeyBuf[5];          //键盘缓冲环计数数组.
+ 251   1              //INT8U key_temp;
+ 252   1              //INT8U i,j;
+ 253   1              TH0     = 0xdc;
+ 254   1              TL0     = 0x31;
+ 255   1              //INT8U i,j;
+ 256   1              Pin_test=!Pin_test;
+ 257   1              if(cntComRxTimeout>=5)
+ 258   1              {
+ 259   2                      cntComRxTimeout=5;
+ 260   2                      if(cntComRxIndex!=0)
+ 261   2                      {
+ 262   3                              comRxLength=cntComRxIndex;
+ 263   3                              if((comRxDataBuf[0]==comRxLength-1)&&(comRxDataBuf[comRxLength-1]==0xff))   //帧长度和帧结束标志正确
+ 264   3                              {
+ 265   4                                      if((comRxDataBuf[1]==0x00)&&(comRxDataBuf[6]==0x02)&&(comRxDataBuf[7]==0x00))  //接收到查询chn,myadres
+             -s
+ 266   4                                      {
+ 267   5                                              staComRx=COM_RX_ASKCHN;
+ 268   5                                              flag_com_rx_finish=1;
+ 269   5                                      }
+ 270   4                                      if((comRxDataBuf[1]==0x02)&&(comRxDataBuf[4]==0x00)&&(comRxDataBuf[5]==0x00))  //接收到数据
+ 271   4                                      {
+ 272   5                                              staComRx=COM_RX_DATA;
+ 273   5                                              flag_com_rx_finish=1;
+ 274   5                                      }
+ 275   4                                      if((comRxDataBuf[1]==0x03)&&(comRxDataBuf[4]==0x00)&&(comRxDataBuf[5]==0x00)&&(comRxDataBuf[6]==0x52))
+             -  //接收到数据确认帧
+ 276   4                                      {
+ 277   5                                              staComRx=COM_RX_DCONFIRM;
+ 278   5                                              flag_com_rx_finish=1;
+ 279   5                                      }
+ 280   4                              }
+ 281   3                      }
+ 282   2                      cntComRxIndex=0;
+ 283   2              }
+ 284   1              cntComRxTimeout++;
+ 285   1              CntCanTxTimeout++;
+ 286   1              if(CntCanTxTimeout>=50)          //CAN数据发送500ms超时
+ 287   1              {
+ 288   2                      CntCanTxTimeout=51;
+ 289   2                      flag_CanTxTimeout=1;
+ 290   2              }
+ 291   1              CntCanRxTimeout++;
+ 292   1              if(CntCanRxTimeout>=50)          //CAN数据接收500ms超时
+ 293   1              {
+ 294   2                      //CntCanRxTimeout=51;
+ 295   2                      CntCanRxTimeout=0;
+ 296   2                      flag_CanRxTimeout=1;
+ 297   2              }
+ 298   1              CntMainTimeout++;
+C51 COMPILER V9.00   MAIN                                                                  05/08/2012 16:11:04 PAGE 6   
+
+ 299   1              if(CntMainTimeout>=500)          //CAN5s没有数据接收时复位
+ 300   1              {
+ 301   2                      CntMainTimeout=501;
+ 302   2                      flag_CanMainTimeout=1;
+ 303   2              }
+ 304   1              
+ 305   1              if(comSnd_timer) comSnd_timer--;
+ 306   1              if(canSnd_timer) canSnd_timer--;
+ 307   1      }
+ 308          //串口接收中断函数 
+ 309          void serial () interrupt 4 using 1 
+ 310          {
+ 311   1              unsigned char ch;
+ 312   1        if(RI)
+ 313   1        {
+ 314   2              RI = 0;
+ 315   2              ET0=1;TR0=1;
+ 316   2          ch=SBUF;
+ 317   2          LED1=0;
+ 318   2              comRxDataBuf[cntComRxIndex++] = ch;
+ 319   2              cntComRxTimeout=0;
+ 320   2          LED1=1;
+ 321   2        }
+ 322   1      }
+ 323          //--------------------------------------------------
+ 324          //函数原型：  void ex0_int(void) interrupt 0 //using 1
+ 325          //功    能：  中断接收函数
+ 326          //入口参数:   无 
+ 327          //出口参数:   RevceData[]数组   
+ 328          //说    明:   当sja1000 收到正确的报文时,会产生int中断           
+ 329          //--------------------------------------------------
+ 330          void ex0_int(void) interrupt 0 using 1
+ 331          {
+ 332   1              unsigned char tt,tt1,length,i;
+ 333   1              i=0;
+ 334   1              msg++;
+ 335   1              CntMainTimeout=0;
+ 336   1              flag_CanMainTimeout=0;
+ 337   1              if(msg==5)
+ 338   1              {
+ 339   2                      msg=0;
+ 340   2          //P34=0;
+ 341   2        }
+ 342   1        LED2=0;
+ 343   1        SJA_BCANAdr=REG_INTERRUPT;
+ 344   1        if((*SJA_BCANAdr)&0x01)//产生了接收中断,并且CAN接收完成已经清零
+ 345   1        {
+ 346   2              SJA_BCANAdr=REG_RXBuffer1;
+ 347   2          tt=*SJA_BCANAdr;
+ 348   2          tt1=*SJA_BCANAdr;
+ 349   2          length=tt1&0x0F;
+ 350   2          if ((tt&0x40)!=0x40)                   //数据帧   假= 为远程帧
+ 351   2          {
+ 352   3              SJA_BCANAdr =REG_RXBuffer1;          //宏定义的变量不能memcpy(CanRevceData,REG_RXBuffer4,8);
+ 353   3              memcpy(RxData_Buf,SJA_BCANAdr,length+5);//功能：由src所指内存区域复制count个字节到dest所指内存区域
+ 354   3              //for(i=0;i<length+2;i++)send_char_com(CanRevceData[i]);//发送到串口
+ 355   3              //CanRevceData[0]=RxData_Buf[1];
+ 356   3              //CanRevceData[1]=RxData_Buf[2];
+ 357   3              tt=(RxData_Buf[3]>>4)&0x0f;
+ 358   3              tt1=RxData_Buf[3]&0x0f;
+ 359   3              memcpy(&CanRevceData[tt1*8],&RxData_Buf[5],length);
+ 360   3              if(0x0 != bytemap_test_set((unsigned int)tt1))
+C51 COMPILER V9.00   MAIN                                                                  05/08/2012 16:11:04 PAGE 7   
+
+ 361   3                      {
+ 362   4                              ;/** warning: the frame received, but now received again **/
+ 363   4                      }
+ 364   3              //if(tt==tt1)  //判断数据包结束
+ 365   3              if(bytemap_isfull(tt + 1))    /** 判断数据包结束. tt从0开始的序号， 加1后就是的1的个数  **/
+ 366   3              {
+ 367   4                      flag_CanRxFinish=1;
+ 368   4                      CntCanRxLength=length+tt*8;
+ 369   4                      bytemap_clean_interrupt();
+ 370   4              }
+ 371   3              
+ 372   3              CntCanRxTimeout = 0; /** CAN数据接收超时计数清0 **/
+ 373   3              //send_string_com(CanRevceData,CntCanRxLength);
+ 374   3          }
+ 375   2          else                                    //远程帧
+ 376   2          {
+ 377   3              flag_canRxRoll=1;
+ 378   3          }
+ 379   2          BCAN_CMD_PRG(RRB_CMD);                  //释放SJA1000接收缓冲区，****已经修改
+ 380   2        }
+ 381   1        LED2=1;
+ 382   1      }
+ 383          //--------------------------------------------------
+ 384          
+ 385          //初始化cpu
+ 386          
+ 387          //--------------------------------------------------
+ 388          void Init_Cpu(void)                                  //单片机初始化,开放外部中断0
+ 389          {
+ 390   1           PX0=1;
+ 391   1           EX0=1;
+ 392   1           IT0=0;
+ 393   1          // EA=1;
+ 394   1      }
+ 395          
+ 396          //--------------------------------------------------
+ 397          //函数原型：   void main(void)
+ 398          
+ 399          void main(void)
+ 400          {
+ 401   1        unsigned char ss;
+ 402   1        unsigned int i;
+ 403   1        unsigned char temptt;
+ 404   1        unsigned char i_buf;
+ 405   1        //unsigned char dstAdress[2];
+ 406   1      //_reset_line: 
+ 407   1        i_buf=0;
+ 408   1              i=0;
+ 409   1              CS=1;                //片选择引脚
+ 410   1        EA=0;
+ 411   1        k1=1;
+ 412   1        k2=1;
+ 413   1        k3=1;
+ 414   1        k4=1;
+ 415   1        CntMainTimeout=0;
+ 416   1              flag_CanMainTimeout=0;
+ 417   1        key_temp=0;
+ 418   1        _nop_();
+ 419   1              _nop_();
+ 420   1              _nop_();
+ 421   1              _nop_();
+ 422   1              if(k1)key_temp|=0x01;else key_temp&=0xfe;
+C51 COMPILER V9.00   MAIN                                                                  05/08/2012 16:11:04 PAGE 8   
+
+ 423   1              if(k2)key_temp|=0x02;else key_temp&=0xfd;
+ 424   1              if(k3)key_temp|=0x04;else key_temp&=0xfb;
+ 425   1              if(k4)key_temp|=0x08;else key_temp&=0xf7;
+ 426   1        RSTCAN=0;
+ 427   1        delay1(500);
+ 428   1        RSTCAN=1;
+ 429   1        bytemap_clean_interrupt();            /** Don't change interrupt status**/
+ 430   1        sendBuf_clean();
+ 431   1        Init_Cpu();
+ 432   1        init_serialcomm();     //初始化串口 
+ 433   1        T0_Ini();       //定时器0初始化
+ 434   1        //初始化SJA1000
+ 435   1        ss=Sja_1000_Init(1);
+ 436   1        WDT_CONTR=0x3b;  //喂狗 1.13s;
+ 437   1        if(ss!=0)             //初始化失败
+ 438   1        {
+ 439   2              ss=Sja_1000_Init(1);
+ 440   2              LED1=0;
+ 441   2                LED2=0;
+ 442   2                WDT_CONTR=0x3b;  //喂狗 1.13s;
+ 443   2              }
+ 444   1              LED2=1;
+ 445   1              LED1=1;
+ 446   1              
+ 447   1              flag_com_rx_finish=0;
+ 448   1        comRxLength=0;
+ 449   1        cntComRxIndex=0;
+ 450   1        cntComRxTimeout=0;
+ 451   1        staComRx=COM_RX_NONE;
+ 452   1        
+ 453   1        //CntComRxTimout=0;
+ 454   1        //flag_ComTxAddr=0;
+ 455   1        flag_CanRxFinish=0;
+ 456   1        flag_CanReset=0;
+ 457   1        setTimer(0, 0/CTIMER_MS);
+ 458   1        setTimer(1, 0/CTIMER_MS);
+ 459   1        
+ 460   1        EA=1; //初始化成功，开总中断
+ 461   1        while(1)
+ 462   1        {
+ 463   2              WDT_CONTR=0x3b;  //喂狗 1.13s;
+ 464   2          //--------------------------------------------------
+ 465   2          if(flag_CanReset==1)
+ 466   2          {
+ 467   3              //LED1=0;
+ 468   3              //LED2=0;
+ 469   3              //while(1);
+ 470   3              //goto _reset_line;
+ 471   3          }
+ 472   2          if(flag_CanMainTimeout==1)
+ 473   2          {
+ 474   3              //LED1=0;
+ 475   3              //LED2=0;
+ 476   3              //while(1);
+ 477   3              //goto _reset_line;
+ 478   3          }
+ 479   2      /** 
+ 480   2       * done something about receive com data  
+ 481   2       *
+ 482   2       *
+ 483   2       **/
+ 484   2          if(flag_com_rx_finish == 1)
+C51 COMPILER V9.00   MAIN                                                                  05/08/2012 16:11:04 PAGE 9   
+
+ 485   2          {
+ 486   3              flag_com_rx_finish = 0;
+ 487   3              
+ 488   3              switch(staComRx)
+ 489   3              {
+ 490   4                      case COM_RX_DATA:               //如果是数据, 先存下
+ 491   4                              i_buf = findEmptyIndex(Com2CanBuf);
+ 492   4                              if(i_buf == 0xff)       /** error, all buffer busy **/
+ 493   4                              {
+ 494   5                                      break;
+ 495   5                              }
+ 496   4                              for(i = 0; i < CSEND_BUF_SIZE - CSTART_ID; i++)
+ 497   4                              {                  
+ 498   5                                      Com2CanBuf[i_buf][CSTART_ID + i] = comRxDataBuf[i];
+ 499   5                              }
+ 500   4                              Com2CanBuf[i_buf][CLENGTH_ID] = comRxLength;
+ 501   4                                      /** send Ack first **/
+ 502   4                              comSendDataBuf[0] = 0x07;
+ 503   4                              comSendDataBuf[1] = 0x03;
+ 504   4                              comSendDataBuf[2] = 0x00;
+ 505   4                              comSendDataBuf[3] = 0x00;
+ 506   4                              comSendDataBuf[4] = Com2CanBuf[i_buf][CSTART_ID + 2];                 //发送数据确认帧
+ 507   4                              comSendDataBuf[5] = Com2CanBuf[i_buf][CSTART_ID + 3];
+ 508   4                              comSendDataBuf[6] = 0x52;
+ 509   4                              comSendDataBuf[7] = 0xff;
+ 510   4                              send_string_com(comSendDataBuf,comSendDataBuf[0]+1);
+ 511   4                              
+ 512   4                              break;
+ 513   4                      case COM_RX_DCONFIRM:
+ 514   4                              break;
+ 515   4                      case COM_RX_ASKCHN:
+ 516   4                              comSendDataBuf[0]=12;
+ 517   4                                      comSendDataBuf[1]=0x01;
+ 518   4                                      comSendDataBuf[2]=0x00;
+ 519   4                                      comSendDataBuf[3]=0x00;
+ 520   4                                      comSendDataBuf[4]=0x00;
+ 521   4                                      comSendDataBuf[5]=0x00;
+ 522   4                                      comSendDataBuf[6]=0x02;  //注意
+ 523   4                                      comSendDataBuf[7]=0x0b+key_temp;//  //chn
+ 524   4                                      comSendDataBuf[8]=0x00;
+ 525   4                                      comSendDataBuf[9]=0x00;
+ 526   4                                      comSendDataBuf[10]=0x00;  //addressL
+ 527   4                                      comSendDataBuf[11]=0x00;  //addressH
+ 528   4                                      comSendDataBuf[12]=0xff;
+ 529   4                                      send_string_com(comSendDataBuf,comSendDataBuf[0]+1);
+ 530   4                                      break;
+ 531   4                      default: break; 
+ 532   4              }
+ 533   3          }
+ 534   2      
+ 535   2          if(flag_canRxRoll == 1)      //如果取数标志已置位，就查看是否有数据待发，将读到的数经canbus发出
+ 536   2          {
+ 537   3              flag_canRxRoll = 0;
+ 538   3              
+ 539   3              i_buf = findBusyIndex(Com2CanBuf);
+ 540   3              if(i_buf != 0xff)       /** all buffer empty ? **/
+ 541   3                      {
+ 542   4                              for(i = 0; i < Com2CanBuf[i_buf][CLENGTH_ID]; i++)
+ 543   4                              {
+ 544   5                                      comSendDataBuf[i] = Com2CanBuf[i_buf][CSTART_ID + i];
+ 545   5                              }
+ 546   4                              comSendLength = Com2CanBuf[i_buf][CLENGTH_ID];
+C51 COMPILER V9.00   MAIN                                                                  05/08/2012 16:11:04 PAGE 10  
+
+ 547   4                              //setEmptyIndex(Com2CanBuf, i_buf);
+ 548   4                              packAcr0=0x12;  //server ID
+ 549   4                      packAcr1=key_temp;
+ 550   4                      CAN_Send_Large(comSendDataBuf,comSendLength);
+ 551   4                      }
+ 552   3          }
+ 553   2              if(flag_CanRxTimeout == 1)
+ 554   2              {
+ 555   3                      flag_CanRxTimeout=0;
+ 556   3                      bytemap_clean();
+ 557   3              }
+ 558   2              /** 连续发往com串口的时间到 **/
+ 559   2              if(getTimer(0) == 0)
+ 560   2              {
+ 561   3                      i_buf = findBusyIndex(Can2ComBuf);      
+ 562   3              if(i_buf < CSEND_BUF_NUM)
+ 563   3              {
+ 564   4                      comSendLength = Can2ComBuf[i_buf][CLENGTH_ID];
+ 565   4                      for(i = 0; i < CSEND_BUF_SIZE; i++)
+ 566   4                      {
+ 567   5                              comSendDataBuf[i] = Can2ComBuf[i_buf][CSTART_ID + i];
+ 568   5                      }
+ 569   4                      //setEmptyIndex(Can2ComBuf, i_buf);
+ 570   4                      send_string_com(comSendDataBuf, comSendLength);
+ 571   4                      setTimer(0, 70/CTIMER_MS);
+ 572   4              }
+ 573   3              }
+ 574   2          if(flag_CanRxFinish == 1)           /** 查是否有收到canbus数据待转发给刷卡器 **/
+ 575   2          {
+ 576   3              flag_CanRxFinish = 0;
+ 577   3              flag_CanRxHead=0;                       /** 有什么用? **/
+ 578   3              #if     0
+                              comSendLength=CntCanRxLength;   //comRxLength = comRxDataBuf[0]+1
+                              for(i=0;i<MAX_BUF_NUM;i++)comSendDataBuf[i]=CanRevceData[i];
+                              send_string_com(comSendDataBuf, comSendLength);
+                      #else
+ 583   3                  /** 找一可用的缓冲，并将数据存入 **/        
+ 584   3                      i_buf = findEmptyIndex(Can2ComBuf);
+ 585   3                      if(i_buf < CSEND_BUF_NUM)
+ 586   3                      {
+ 587   4                              Can2ComBuf[i_buf][CLENGTH_ID] = CntCanRxLength;
+ 588   4                              for(i = 0; i < CSEND_BUF_SIZE - CSTART_ID; i++)
+ 589   4                              {
+ 590   5                                      Can2ComBuf[i_buf][CSTART_ID + i] = CanRevceData[i];
+ 591   5                              }
+ 592   4                      }
+ 593   3              #endif
+ 594   3              /** 收到服务器的数据确认，若有数据继续发 **/
+ 595   3              #if     1
+ 596   3              i_buf = findBusyIndex(Com2CanBuf);
+ 597   3              if(i_buf != 0xff)
+ 598   3                      {
+ 599   4                              for(i = 0; i < Com2CanBuf[i_buf][CLENGTH_ID]; i++)
+ 600   4                              {
+ 601   5                                      comSendDataBuf[i] = Com2CanBuf[i_buf][CSTART_ID + i];
+ 602   5                              }
+ 603   4                              comSendLength = Com2CanBuf[i_buf][CLENGTH_ID];
+ 604   4                              //setEmptyIndex(Com2CanBuf, i_buf);
+ 605   4                              
+ 606   4                              packAcr0=0x12;  //server ID
+ 607   4                      packAcr1=key_temp;
+ 608   4                      CAN_Send_Large(comSendDataBuf,comSendLength);
+C51 COMPILER V9.00   MAIN                                                                  05/08/2012 16:11:04 PAGE 11  
+
+ 609   4                      }
+ 610   3                      #endif
+ 611   3          }
+ 612   2          //--------------------------------------------------
+ 613   2          SJA_BCANAdr = REG_STATUS;    
+ 614   2          temptt=*SJA_BCANAdr;
+ 615   2          if ((temptt&0x40)==0x40)                     //读错误状态有错误时复位
+ 616   2          {
+ 617   3              WDT_CONTR=0x3b;  //喂狗 1.13s;
+ 618   3              LED1=0;
+ 619   3              LED2=0;
+ 620   3              delay1(500);
+ 621   3              Sja_1000_Init(0);
+ 622   3              LED1=1;
+ 623   3              LED2=1;
+ 624   3              delay1(500);
+ 625   3          }
+ 626   2        }
+ 627   1      }
+ 628          
+ 629          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2518    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   2934      19
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     26    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      4    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

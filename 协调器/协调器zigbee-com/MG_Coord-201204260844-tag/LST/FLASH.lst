@@ -1,0 +1,361 @@
+C51 COMPILER V9.01   FLASH                                                                 07/19/2011 14:29:58 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE FLASH
+OBJECT MODULE PLACED IN .\HEX\FLASH.obj
+COMPILER INVOKED BY: d:\Keil\C51\BIN\C51.EXE C_HAL\FLASH.c LARGE OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\LST\
+                    -FLASH.lst) OBJECT(.\HEX\FLASH.obj)
+
+line level    source
+
+   1          /*******************************************************************************
+   2                  - Chip          : MG2450/2455
+   3                  - Vendor                : RadioPulse Inc, 2007.
+   4                  - Date          : 2010-08-13
+   5                  - Version               : VER 1.80
+   6          
+   7                  [2010-08-13] VER 1.80
+   8                  - Modified to support the new version chip whose CHIP ID is 0x96 in ZHAL_FLASH_PAGE_WRITE_EXTEND().
+   9          
+  10                  [2010-05-28] VER 1.72
+  11                  - In abnormal situation, Flash-writing is not performed in ZHAL_FLASH_PAGE_WRITE_EXTEND().
+  12                          + if( (xPDCON & 0x04) == 0)     return 2;
+  13                          + if(xFCN_CMD != 0x80)          return 2;
+  14                          + if(xFCN_LEN1 != 0x00)         return 3;
+  15                          + if(xFCN_LEN0 != 0x00)         return 5;
+  16                          + if(xFCN_ADR1 != 0x70) return 6;
+  17                          + if(xFCN_ADR0 != 0x00) return 7;
+  18          
+  19                  [2010-04-27] VER 1.71
+  20                  - Remove "Flash Writing with DVREG=1.8V"
+  21          
+  22                  [2009-11-27]    VER 1.70
+  23                  - ZHAL_FLASH_REG_INIT() is added
+  24                  - ZHAL_FLASH_PAGE_WRITE_PROTECTED() is added
+  25                  - ZHAL_FLASH_PAGE_WRITE_UNPROTECTED() is added
+  26                  - ZHAL_FLASH_READ() is added    
+  27                  - ZHAL_FLASH_PAGE_ERASE() is modified
+  28                  - ZHAL_FLASH_PAGE_WRITE_EXTEND() is modified
+  29          
+  30                  [2009-02-23]    VER 1.60
+  31                  - ZHAL_FLASH_PAGE_WRITE() is removed.
+  32                  - ZHAL_FLASH_PAGE_WRITE_EXTEND() is added.
+  33                  - Flash Writing is operated with DVREG=1.8V.(xPDM |= 0x40)      
+  34                  
+  35                  [2007-11-07] VER 1.50
+  36                  - Initial Version       
+  37          *******************************************************************************/
+  38          
+  39          
+  40          /****************************************************************
+  41                  MG245X Embedded FLASH
+  42          
+  43                  + Memory Size : 96KB + 1KB
+  44                  + Page Size : 512 Bytes
+  45                  + Erase Unit : 512 Bytes
+  46                  + Bank Structure
+  47                          Bank0           : 0x0000 ~ 0x7FFF
+  48                          Bank1   : 0x8000 ~ 0xFFFF
+  49                          Bank2   : 0x8000 ~ 0xFFFF
+  50                          Bank3           : Reserved as 0
+  51                          Bank4           : 0x8000 ~ 0x8400
+  52          ****************************************************************/
+  53          
+  54          #include "INCLUDE_TOP.h"
+C51 COMPILER V9.01   FLASH                                                                 07/19/2011 14:29:58 PAGE 2   
+
+  55          
+  56                  UINT8   FlashWriteProtect = 0x80;                       // 0x00=Unprotected, 0x80=Protected
+  57          
+  58          /*void ZHAL_FLASH_REG_INIT()
+  59          {       
+  60                  xFCN_NOWAIT     =0x00;
+  61          
+  62                  xFCN_CMD        =0x80;          // protect bit set 
+  63                  xFCN_ADR1       =0x70;          // address register parking at 0x6000-0x7FFF 
+  64                  xFCN_ADR0       =0x00;
+  65                  xFCN_LEN1       =0x00;          // length register parking with 0x0000 
+  66                  xFCN_LEN0       =0x00;
+  67                  xFCN_TERS1      =0x00;          // flash timing parameters parking with all zero 
+  68                  xFCN_TERS0      =0x00;
+  69                  xFCN_TME1       =0x00;
+  70                  xFCN_TME0       =0x00;
+  71                  xFCN_TPRG       =0x00;
+  72                  xFCN_TRCV       =0x00;
+  73                  xFCN_THV1       =0x00;
+  74                  xFCN_THV0       =0x00;
+  75                  xFCN_TNVS       =0x00;
+  76                  xFCN_TNVH       =0x00;
+  77                  xFCN_TPGS       =0x00;
+  78                  xFCN_TNVH1      =0x00;
+  79                  //
+  80                  //
+  81          
+  82                  FlashWriteProtect = 0x80;
+  83                  
+  84          }  */
+  85          
+  86          
+  87          // RETURN       : 0=Success, 1=Failed
+  88          /*UINT8 ZHAL_FLASH_WRITE_UNPROTECTED()
+  89          {
+  90                  if( (xPDCON & 0x20) == 0)       // AVREG_OK=0
+  91                  {
+  92                          return  1;
+  93                  }
+  94                  else
+  95                  {
+  96                          FlashWriteProtect = 0x00;
+  97                  }
+  98                  return  0;
+  99          }*/
+ 100          
+ 101          /*void ZHAL_FLASH_WRITE_PROTECTED()
+ 102          {
+ 103          
+ 104                  FlashWriteProtect = 0x80;
+ 105                  xFCN_CMD = 0x80;        // Write-Protected
+ 106          }*/
+ 107          
+ 108          void ZHAL_FLASH_PAGE_ERASE(UINT16 FlashWordAddr)
+ 109          {
+ 110   1              xFCN_NOWAIT = 0x00;
+ 111   1      
+ 112   1              while(xFCN_STS0 & 0x01);
+ 113   1      
+ 114   1              _nop_();
+ 115   1              _nop_();
+ 116   1              _nop_();
+C51 COMPILER V9.01   FLASH                                                                 07/19/2011 14:29:58 PAGE 3   
+
+ 117   1              _nop_();
+ 118   1      
+ 119   1              xFCN_ADR0 = FlashWordAddr & 0xFF;
+ 120   1              xFCN_ADR1 = (FlashWordAddr>>8);
+ 121   1              xFCN_LEN1 = 0;
+ 122   1              xFCN_LEN0 = 1;
+ 123   1              xFCN_CMD = (FlashWriteProtect | 0x02);  // Page Erase
+ 124   1      
+ 125   1              _nop_();
+ 126   1              _nop_();
+ 127   1              _nop_();
+ 128   1              _nop_();
+ 129   1      
+ 130   1              while(xFCN_STS0 & 0x01);
+ 131   1              xFCN_CMD = 0x80;        // Write-Protected
+ 132   1      
+ 133   1      }
+ 134          
+ 135          //-------------------------------------------------------------------------------------
+ 136          //      Area            | Code Address  | Word Address ( 1Word = 4Byte )
+ 137          //-------------------------------------------------------------------------------------
+ 138          //      Common  | 0x0000 ~ 0x7FFF       | 0x0000 ~ 0x1FFF
+ 139          //-------------------------------------------------------------------------------------
+ 140          //      Bank0   | 0x8000 ~ 0xFFFF       | 0x2000 ~ 0x3FFF
+ 141          //-------------------------------------------------------------------------------------
+ 142          //      Bank1   | 0x8000 ~ 0xFFFF       | 0x4000 ~ 0x5FFF
+ 143          //-------------------------------------------------------------------------------------
+ 144          
+ 145          //-------------------------------------------------------------------------------------
+ 146          //-     BankNum         : 0=BANK0, 1=BANK1. When CodeAddr < 0x8000, BankNum is ignored.
+ 147          //-     CodeAddr        : Should be aligned for 512bytes.(0x8000 ~ ). (ex) 0x8000 or 0x8200 or 0x8400 ...
+ 148          //              Common  : 0x0000 ~ 0x7FFF
+ 149          //              BANK0   : 0x8000 ~ 0xFFFF
+ 150          //              BANK1   : 0x8000 ~ 0xFFFF
+ 151          //- pByteBuf            : pointer to 512 Bytes Data to Write
+ 152          //-------------------------------------------------------------------------------------
+ 153          
+ 154          // 512 Byte Addr Write
+ 155          // For Compatibility to old version function 'ZHAL_FLASH_PAGE_WRITE()'
+ 156          //              ZHAL_FLASH_PAGE_WRITE(CodeAddr, pByteBuf)
+ 157          //                      = ZHAL_FLASH_PAGE_WRITE_EXTEND(0, CodeAddr, pByteBuf)
+ 158          
+ 159          // RETURN       : 1=Failed, 0=Success
+ 160          /*UINT8 ZHAL_FLASH_PAGE_WRITE_EXTEND(UINT8 BankNum, UINT16 CodeAddr, UINT8 *pByteBuf)
+ 161          {
+ 162                  UINT16  i;
+ 163                  UINT16  len;
+ 164                  UINT16  dst;
+ 165          
+ 166                  UINT16  FlashWordAddr;
+ 167          
+ 168                  if(FlashWriteProtect)   return 1;
+ 169          
+ 170                  if(CodeAddr < 0x8000)
+ 171                  {
+ 172                          FlashWordAddr = CodeAddr >> 2;  // FlashWordAddr = CodeAddr / 4
+ 173                  }
+ 174                  else
+ 175                  {
+ 176                          if(BankNum == 0)        FlashWordAddr = 0x2000 + (CodeAddr - 0x8000) / 4;       
+ 177                          else                                    FlashWordAddr = 0x4000 + (CodeAddr - 0x8000) / 4;       
+ 178                  }
+C51 COMPILER V9.01   FLASH                                                                 07/19/2011 14:29:58 PAGE 4   
+
+ 179          
+ 180          //
+ 181          //      STEP-1 : CLOCK STALL OFF
+ 182          //
+ 183                  xFCN_NOWAIT = 0x00;
+ 184          
+ 185                  //
+ 186                  //
+ 187          #if     (OPERATE_AT_16MHz)
+ 188                  // 16MHz Parameters 
+ 189                  xFCN_TERS1      =0x04; 
+ 190                  xFCN_TERS0      =0xE2; 
+ 191                  xFCN_TME1       =0x04; 
+ 192                  xFCN_TME0       =0xE2; 
+ 193                  xFCN_TPRG       =0x14;
+ 194                  xFCN_TRCV       =0x10;
+ 195                  xFCN_THV1       =0x00; 
+ 196                  xFCN_THV0       =0xFA; 
+ 197                  xFCN_TNVS       =0x50;
+ 198                  xFCN_TNVH       =0x50;
+ 199                  xFCN_TPGS       =0xA0;
+ 200                  xFCN_TNVH1      =0x64; 
+ 201          #else
+ 202                  // 08MHz Parameters
+ 203                  xFCN_TERS1      =0x02;
+ 204                  xFCN_TERS0      =0x71;
+ 205                  xFCN_TME1       =0x02;
+ 206                  xFCN_TME0       =0x71;
+ 207                  xFCN_TPRG       =0x0A;
+ 208                  xFCN_TRCV       =0x08;
+ 209                  xFCN_THV1       =0x00;
+ 210                  xFCN_THV0       =0x7C;
+ 211                  xFCN_TNVS       =0x28;
+ 212                  xFCN_TNVH       =0x28;
+ 213                  xFCN_TPGS       =0x50;
+ 214                  xFCN_TNVH1      =0x32;
+ 215          #endif
+ 216          
+ 217                  if(xCHIPID >= 0x96)
+ 218                  {
+ 219                          if(xPDCON & 0x04)               return 2;       // If BOD(Bit2)=1(Disabled. reversed polarity)
+ 220                  }
+ 221                  else
+ 222                  {
+ 223                          if( (xPDCON & 0x04) == 0)       return 2;       // If BOD(Bit2)=0(Disabled)
+ 224                  }
+ 225                  if(xFCN_CMD != 0x80)            return 3;
+ 226                  if(xFCN_LEN1 != 0x00)           return 4;
+ 227                  if(xFCN_LEN0 != 0x00)           return 5;
+ 228                  if(xFCN_ADR1 != 0x70)   return 6;
+ 229                  if(xFCN_ADR0 != 0x00)   return 7;       
+ 230                  //
+ 231                  //
+ 232                  
+ 233                  xFCN_LEN0 = 0x01;
+ 234                  xFCN_LEN1 = 0x00;
+ 235                  
+ 236          //
+ 237          //      STEP-2 : Erase Page
+ 238          //
+ 239          
+ 240                  WDT |= 0x04;
+C51 COMPILER V9.01   FLASH                                                                 07/19/2011 14:29:58 PAGE 5   
+
+ 241                  ZHAL_FLASH_PAGE_ERASE(FlashWordAddr);
+ 242          
+ 243          //
+ 244          //      STEP-3 : IDLE CHECK
+ 245          //
+ 246                  while(xFCN_STS0&0x01);  
+ 247          
+ 248          //
+ 249          //      STEP-4 : PAGE WRITE
+ 250          //
+ 251                  i = 0;
+ 252                  dst = FlashWordAddr;
+ 253                  len = 512/4;
+ 254          
+ 255                  while(len)
+ 256                  {
+ 257                          WDT |= 0x04;
+ 258                  
+ 259                          xFCN_ADR0 = dst & 0xFF;
+ 260                          xFCN_ADR1 = (dst>>8);
+ 261          
+ 262                          xFCN_DAT3 = pByteBuf[i+3];
+ 263                          xFCN_DAT2 = pByteBuf[i+2];
+ 264                          xFCN_DAT1 = pByteBuf[i+1];
+ 265                          xFCN_DAT0 = pByteBuf[i+0];
+ 266          
+ 267                          xFCN_CMD  = (FlashWriteProtect | 0x01);
+ 268                          
+ 269                          _nop_();
+ 270                          _nop_();
+ 271                          _nop_();
+ 272                          _nop_();
+ 273          
+ 274                          i   += 4;               // byte addr
+ 275                          dst += 1;       // word addr
+ 276                          len -= 1;       // word wlen 
+ 277                  }
+ 278          
+ 279                  while(xFCN_STS0 & 0x01);
+ 280          
+ 281                  //
+ 282                  //
+ 283                  xFCN_CMD        =0x80;          // protect bit set 
+ 284                  xFCN_ADR1       =0x70;          // address register parking at 0x6000-0x7FFF 
+ 285                  xFCN_ADR0       =0x00;
+ 286                  xFCN_LEN1       =0x00;          // length register parking with 0x0000 
+ 287                  xFCN_LEN0       =0x00;
+ 288                  xFCN_TERS1      =0x00;          // flash timing parameters parking with all zero 
+ 289                  xFCN_TERS0      =0x00;
+ 290                  xFCN_TME1       =0x00;
+ 291                  xFCN_TME0       =0x00;
+ 292                  xFCN_TPRG       =0x00;
+ 293                  xFCN_TRCV       =0x00;
+ 294                  xFCN_THV1       =0x00;
+ 295                  xFCN_THV0       =0x00;
+ 296                  xFCN_TNVS       =0x00;
+ 297                  xFCN_TNVH       =0x00;
+ 298                  xFCN_TPGS       =0x00;
+ 299                  xFCN_TNVH1      =0x00;
+ 300                  //
+ 301                  //
+ 302          
+C51 COMPILER V9.01   FLASH                                                                 07/19/2011 14:29:58 PAGE 6   
+
+ 303                  return  0;
+ 304          
+ 305          }*/
+ 306          
+ 307          //- CodeAddr    : 0x0000 ~ 0x7FFF
+ 308          //- Len                 : 0x0000 ~ 0x7FFF
+ 309          //- RETURN      : 1=Failed, 0=Success
+ 310          UINT8 ZHAL_FLASH_READ(UINT16 CodeAddr, UINT8 *pReadBuf, UINT16 Len)
+ 311          {
+ 312   1              UINT16  i;
+ 313   1              UINT16  LastCodeAddr;
+ 314   1              UINT8   code *pCodeBuf;
+ 315   1      
+ 316   1              if(CodeAddr >= 0x8000)  return 1;
+ 317   1              if(Len >= 0x8000)                       return 1;
+ 318   1              LastCodeAddr = CodeAddr + Len;
+ 319   1              if(LastCodeAddr >= 0x8000)      return 1;
+ 320   1      
+ 321   1              pCodeBuf = CodeAddr;
+*** WARNING C289 IN LINE 321 OF C_HAL\FLASH.C: '=': converting non-pointer to pointer
+ 322   1              for(i=0 ; i<Len ; i++)  pReadBuf[i] = pCodeBuf[i];
+ 323   1              return  0;
+ 324   1      }
+ 325          
+ 326          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    190    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      1      11
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)

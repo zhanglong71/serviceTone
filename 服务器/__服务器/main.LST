@@ -1,0 +1,841 @@
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE main.c LARGE BROWSE DEBUG OBJECTEXTEND
+
+line level    source
+
+   1          //--------------------------------------------------
+   2          //PeliCANÄ£Ê½£¬±ê×¼Ö¡
+   3          //RS232²¨ÌØÂÊ£º57600
+   4          //CAN²¨ÌØÂÊ£º125kbps
+   5          //ÉèÖÃIDÔÚ18ÐÐ
+   6          //--------------------------------------------------
+   7          #define MAIN_GLOBALS
+   8          #include <includes.h>
+   9          #include <CodeCrc.h>
+  10          #define MAX_BUF_NUM     128
+  11          #define ROOM_NUM 40                     //Ò»¸öÐ­µ÷Æ÷Àï´æ·Å·¿¼äºÅµÄ¸öÊý
+  12          #define COORD_NUM 16            //CANÀïÁ¬Ð­µ÷Æ÷µÄ¸öÊý
+  13          
+  14          #define COM_RX_NONE     0x00 //¿ÕÊý¾Ý
+  15          #define COM_RX_DATA     0x01 //½ÓÊÕµ½Êý¾Ý
+  16          #define COM_RX_DCONFIRM 0x02 //½ÓÊÕµ½Êý¾ÝÈ·ÈÏ
+  17          #define COM_RX_ASKCHN   0x03 //½ÓÊÕµ½Êý¾ÝÈ·ÈÏ
+  18          
+  19          #define CSEND_BUF_NUM   8               //canbus½ÓÊÕ(Í¬Ê±Ò²ÊÇcom·¢ËÍ)»º³åÇø¸öÊý
+  20          #define CSEND_BUF_SIZE  128             //µ¥¸öcanbus½ÓÊÕ(Í¬Ê±Ò²ÊÇcom·¢ËÍ)»º³åÇø´óÐ¡
+  21          unsigned char Can2ComBuf[CSEND_BUF_NUM][CSEND_BUF_SIZE];                //Don't write in it in main loop
+  22          #define CLENGTH_ID      1
+  23          #define CCOORD_ID       (CLENGTH_ID + 1)
+  24          #define CSTART_ID       (CCOORD_ID + 1)
+  25          
+  26          #define CTIMER_MS       10
+  27          #define CROLLCYCLE      (100)           /** ÂÖÑ¯ÖÜÆÚ¿ÉÉèÎª100ms **/
+  28          
+  29          //#define INBUF_LEN 10   //Êý¾Ý³¤¶È
+  30          //sfr WDT_CONTR = 0xC1; //Watch-Dog-Timer Control register
+  31          unsigned char RoomTable[COORD_NUM][ROOM_NUM][2];
+  32          unsigned char comSendDataBuf[MAX_BUF_NUM];
+  33          //unsigned char cntComSendIndex;
+  34          unsigned int comSendLength;
+  35          unsigned char comRxDataBuf[MAX_BUF_NUM];
+  36          unsigned char comRxDataCirl[6][MAX_BUF_NUM];
+  37          unsigned char comWrPoint;
+  38          unsigned char comRdPoint;
+  39          unsigned int comRxLength;
+  40          unsigned int cntComRxIndex;
+  41          unsigned char cntComRxTimeout;
+  42          unsigned char flag_com_rx_finish;
+  43          unsigned char staComRx;
+  44          unsigned char canRxCoorNum;
+  45          unsigned char comSendCoorNum;
+  46          
+  47          unsigned char cntRollTmr;
+  48          unsigned char cntComSndTmr;     /** Á¬Ðø·¢ËÍ¶à×éÊý¾Ý¸ø´®¿ÚµÄ×é¼äÑÓÊ±¼ÆÊýÆ÷ **/
+  49          unsigned char cntReqComTmr;
+  50          
+  51          
+  52          unsigned char rollCnt;
+  53          unsigned char rollDelayCnt;             /** ±¾Ð­µ÷Æ÷ÑÓ³Ù´ÎÊý **/
+  54          unsigned char rollCycleCnt;             /** ±¾´Î16¸öÐ­µ÷Æ÷ÖÐÒÑÓÐ¶àÉÙ¸öÑÓ³Ù**/
+  55          
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 2   
+
+  56          //unsigned char data Tmod_data;
+  57          unsigned char run_lamp_flush_count = 0;
+  58          unsigned char run_lamp_flush_time = 10;
+  59          sbit  run_lamp = P1^0;
+  60          unsigned char CanRevceData[MAX_BUF_NUM];
+  61          //unsigned int data rxbuffer[10]={REG_RXBuffer1,REG_RXBuffer2,REG_RXBuffer3,REG_RXBuffer4,REG_RXBuffer5,RE
+             -G_RXBuffer6,REG_RXBuffer7,REG_RXBuffer8,REG_RXBuffer9,REG_RXBuffer10};
+  62          //unsigned int data txbuffer[10]={REG_TXBuffer1,REG_TXBuffer2,REG_TXBuffer3,REG_TXBuffer4,REG_TXBuffer5,RE
+             -G_TXBuffer6,REG_TXBuffer7,REG_TXBuffer8,REG_TXBuffer9,REG_TXBuffer10};
+  63          //unsigned char data Send_CAN_Info_ID[5]={0x08,0x55,0xe0,0x55,0x55};
+  64          //unsigned char data Send_CAN_Info_ID[5]={0x01,0x55,0xe0,0x55,0x55};
+  65          //unsigned char data Com_RecBuff[8]={0x01,0x02,0x03,0x4,0x05,0x06,0x07,0x08};
+  66          unsigned char bdata flag_init;
+  67          //*************************
+  68          #define INBUF_LEN 8   //Êý¾Ý³¤¶È
+  69          
+  70          unsigned char checksum,count3=0;
+  71          bit  overtimer_flag=0;read_flag=0;
+  72          //***************************
+  73          sbit rcv_flag=flag_init^0;
+  74          sbit err_flag=flag_init^0;
+  75          sbit CS=P2^7;
+  76          sbit RSTCAN=P1^6;
+  77          sbit LED1=P3^5;
+  78          sbit LED2=P3^4;
+  79          sbit Pin_test=P3^3;
+  80          unsigned char RECOK;
+  81          unsigned int msg;
+  82          unsigned int CntMainTimeout;
+  83          bit flag_CanMainTimeout;
+  84          bit flag_CanReset;
+  85          bit flag_Roll;
+  86          
+  87          #include <bytemapOp.c>
+  88          
+  89          unsigned char GetCrc8(unsigned char *ptr, unsigned char len)
+  90          {
+  91   1              unsigned char crc8,dataa;
+  92   1              crc8=0;
+  93   1              while(len--!=0)
+  94   1              {
+  95   2                      dataa = *ptr++;
+  96   2                      crc8=crc8_tbl[crc8^dataa];
+  97   2              }
+  98   1              return crc8;
+  99   1      }
+ 100          void delay(unsigned int us)   //delay time
+ 101          {
+ 102   1              while(us--)
+ 103   1              {
+ 104   2                      _nop_();
+ 105   2                      WDT_CONTR=0x3b;  //Î¹¹· 1.13s;
+ 106   2              }
+ 107   1      }
+ 108          void delay1(unsigned int ms)
+ 109          {
+ 110   1              unsigned int i,j;
+ 111   1              for(i=0;i<ms;i++)
+ 112   1              for(j=0;j<15;j++)
+ 113   1              delay(1);
+ 114   1      }
+ 115          /****************************************************
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 3   
+
+ 116           * 
+ 117           * sendBuf_clean
+ 118           *
+ 119           ************************************************/
+ 120          void sendBuf_clean(void)
+ 121          {
+ 122   1              unsigned int i, j;
+ 123   1              
+ 124   1              for(i = 0; i < CSEND_BUF_NUM; i++)
+ 125   1              {
+ 126   2                      for(j = 0; j < CSEND_BUF_SIZE; j++)
+ 127   2                      {
+ 128   3                              Can2ComBuf[i][j] = 0;
+ 129   3                      }
+ 130   2              }
+ 131   1      }
+ 132          
+ 133          /****************************************************
+ 134           * ÕÒÒ»¸ö¿ÕµÄÏî£¬×÷Îª´æÈëÊý¾ÝµÄµØµã 
+ 135           * function name: findEmptyIndex_Interrupt
+ 136           * input: 
+ 137           * output:
+ 138           * return: index
+ 139           * No change buffer, No change interrupt flag
+ 140           *
+ 141           ****************************************************/
+ 142          unsigned int findEmptyIndex_Interrupt(void)
+ 143          {
+ 144   1              unsigned int i;
+ 145   1      
+ 146   1              /** find empty one **/
+ 147   1              for(i = 0; i < CSEND_BUF_NUM; i++)
+ 148   1              {
+ 149   2                      if(Can2ComBuf[i][0] == 0)
+ 150   2                      {
+ 151   3                              Can2ComBuf[i][0] = 1;
+ 152   3                              return  i;
+ 153   3                      }
+ 154   2              }
+ 155   1              /** ³¬¹ý·¶Î§£¬³ö´í **/
+ 156   1              return  0xff;
+ 157   1      }
+ 158          /****************************************************
+ 159           * ÕÒÒ»¸öÓÐÊý¾ÝµÄÏî£¬×¼±¸·¢ËÍÊý¾Ý
+ 160           * sendCanBuf_send
+ 161           *
+ 162           ************************************************/
+ 163          unsigned int findBusyIndex(void)
+ 164          {
+ 165   1              unsigned int i;
+ 166   1              
+ 167   1          for(i = 0; i < CSEND_BUF_NUM; i++)
+ 168   1          {
+ 169   2              if(Can2ComBuf[i][0] != 0)
+ 170   2              {
+ 171   3                      Can2ComBuf[i][0] = 0;
+ 172   3                      return  i;
+ 173   3                      }
+ 174   2              }
+ 175   1      
+ 176   1              /** ³¬¹ý·¶Î§£¬³ö´í **/
+ 177   1              return  0xff;
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 4   
+
+ 178   1      }
+ 179          
+ 180          #if     0
+              void setIndexEmpty(unsigned int index)
+              {
+              
+                      unsigned char   _EA;
+                      _EA = EA;
+                      
+                      EA = 0;
+                      Can2ComBuf[index][0] = 0;
+                      EA = _EA;
+              }
+              #endif
+ 192          /*******************************************************************************
+ 193           * timer operation
+ 194           *
+ 195           * setTimer/addTimer/getTimer
+ 196           *
+ 197           *******************************************************************************/
+ 198          void setTimer(unsigned char TimerNum, unsigned int TickCount)
+ 199          {
+ 200   1              unsigned char   _EA;
+ 201   1      
+ 202   1              _EA = EA;
+ 203   1              EA = 0;
+ 204   1      
+ 205   1              if(TimerNum == 0)               cntComSndTmr = TickCount;               /** Éè¶¨´®¿Ú·¢ËÍÑÓ³Ù **/
+ 206   1              else if(TimerNum == 1)  cntReqComTmr = TickCount;
+ 207   1              else if(TimerNum == 2)  cntRollTmr = TickCount;                 
+ 208   1      
+ 209   1              EA = _EA;
+ 210   1      }
+ 211          #if     0
+              void addTimer(unsigned char TimerNum, unsigned int TickCount)
+              {
+                      unsigned char   _EA;
+              
+                      _EA = EA;
+                      EA = 0;
+              
+                      if(TimerNum == 0)               cntComSndTmr += TickCount;              /** Éè¶¨´®¿Ú·¢ËÍÑÓ³Ù **/
+                      else if(TimerNum == 1)  cntReqComTmr += TickCount;
+                      else if(TimerNum == 2)  cntRollTmr += TickCount;                        
+              
+                      EA = _EA;
+              }
+              #endif
+ 226          unsigned int getTimer(unsigned char TimerNum)
+ 227          {
+ 228   1              unsigned int    ReturnTick;
+ 229   1              unsigned char   _EA;
+ 230   1      
+ 231   1              _EA = EA;
+ 232   1              EA = 0;
+ 233   1      
+ 234   1              if(TimerNum == 0)               ReturnTick = cntComSndTmr;
+ 235   1              else if(TimerNum == 1)  ReturnTick = cntReqComTmr;
+ 236   1              else if(TimerNum == 2)  ReturnTick = cntRollTmr;
+ 237   1              else                                    ReturnTick = 0;
+ 238   1      
+ 239   1              EA = _EA;
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 5   
+
+ 240   1      
+ 241   1              return  ReturnTick;
+ 242   1      }
+ 243          /*********************************************************************/
+ 244          void updateRDPoint(void)
+ 245          {       
+ 246   1              unsigned char   _EA;
+ 247   1      
+ 248   1              _EA = EA;
+ 249   1              EA = 0;
+ 250   1              comRdPoint++;                   /** The only position that change RdPoint **/
+ 251   1              comRdPoint%=6;
+ 252   1              EA = _EA;       
+ 253   1      }
+ 254          void updateWRPoint(void)
+ 255          {       
+ 256   1              unsigned char   _EA;
+ 257   1      
+ 258   1              _EA = EA;
+ 259   1              EA = 0;
+ 260   1              comWrPoint++;                   /** The only position change WrPoint **/
+ 261   1              comWrPoint %= 6;
+ 262   1              EA = _EA;       
+ 263   1      }
+ 264          /********************************************************************* 
+ 265           *
+ 266           * Èç¹ûÊÕµ½canbusÊý¾Ý£¬±íÃ÷Ð­µ÷Æ÷ÉÏ¿ÉÄÜÓÐ¸ü¶àµÄÊý¾Ý£¬ÐèÒªÑÓÊ±´ý
+ 267           * µ«¿¼ÂÇµ½Èç¹ûÃ¿Ò»Ì¨Ð­µ÷Æ÷ÉÏ¶¼ÓÐÊý¾Ý£¬Ôò×î³¤ÐèÒª16Ãë²ÅÄÜ½«ËùÓÐÐ­µ÷Æ÷ÂÖÑ¯Ò»±é£¬ÕâÏÔÈ»ÊÇ²»ºÏÀíµÄ¡£ 
+ 268           *
+ 269           * ÏÞÖÆÈçÏÂ£º
+ 270           * 1¡¢Ã¿Ò»ÂÖÑ¯ÖÜÆÚÄÚ(16¸öÐ­µ÷Æ÷È«²¿²éÒ»±é)£¬×î¶àÖ»ÄÜÓÐ3¸öÐ­µ÷Æ÷¶ÔÓ¦µÄÊ±¼äÆ¬¿ÉÒÔÑÓÊ±
+ 271           * 2¡¢Ã¿¸öÐ­µ÷Æ÷¶ÔÓ¦µÄÊ±¼äÆ¬×î¶à¿ÉÒÔÑÓ³¤2´Î¡£
+ 272           *
+ 273           * ÊµÏÖ£º
+ 274           * a¡¢µ±·¢ÆðÂÖÑ¯Ê±£¬rollDelayCnt = 0£¬ÈôÐ­µ÷Æ÷ºÅÊÇ0£¬ rollCycleCnt=0¡£
+ 275           * b¡¢µ±ÊÕµ½canbusÊý¾ÝÊ±£¬ÈôrollDelayCnt Îª0£¬ÔòrollCycleCnt¼Ó1¡£
+ 276           * c¡¢µ±ÊÕµ½canbusÊý¾ÝÊ±£¬rollDelayCnt¼Ó1²¢µ÷Õû²»³¬³öÉÏÏÞ¡£
+ 277           * d¡¢²érollDelayCntÓërollCycleCntÊÇ·ñ³¬³öÉÏÏÞ£¬Èç¹ûÃ»ÓÐ³¬³öÉÏÏÞ£¬¾ÍÑÓ³¤Ê±¼äÆ¬£¬·ñÔò²»ÑÓ³¤Ê±¼äÆ¬¡£
+ 278           *
+ 279           *********************************************************************/
+ 280          void rollDelayRestart(void)
+ 281          {
+ 282   1              unsigned char   _EA;
+ 283   1      
+ 284   1              _EA = EA;
+ 285   1              EA = 0;
+ 286   1              
+ 287   1              if(rollCnt == 0)
+ 288   1              {
+ 289   2                      rollCycleCnt = 0;
+ 290   2              }
+ 291   1              rollDelayCnt = 0;
+ 292   1      
+ 293   1              EA = _EA;
+ 294   1      }
+ 295          /*
+ 296           *
+ 297           *return: allow add timeslice or not
+ 298           */
+ 299          unsigned char rollDelayUpdate(void)
+ 300          {
+ 301   1              unsigned char ret = 0;
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 6   
+
+ 302   1              /** ÏÈ¸üÐÂ **/
+ 303   1              if(rollDelayCnt == 0)   /** Ò»¶¨ÊÇµÚÒ»´ÎÊÕµ½ÐÂÐ­µ÷Æ÷µÄÊý¾Ý **/
+ 304   1              {
+ 305   2                      rollCycleCnt++;
+ 306   2              }
+ 307   1              rollDelayCnt++;
+ 308   1              
+ 309   1              /** ÔÙÐÞÕý **/
+ 310   1              if(rollCycleCnt > 3)
+ 311   1              {
+ 312   2                      rollCycleCnt = 4;
+ 313   2                      return 0;
+ 314   2              }
+ 315   1              if(rollDelayCnt > 4)
+ 316   1              {
+ 317   2                      rollDelayCnt = 5;
+ 318   2                      return 0;
+ 319   2              }
+ 320   1              return  1;
+ 321   1      }
+ 322          ///--------------------------------------------------
+ 323          //º¯ÊýÔ­ÐÍ: void init_serialcomm(void)
+ 324          //²ÎÊýËµÃ÷: ´®¿Ú³õÊ¼»¯
+ 325          //ËµÃ÷:     ÉèÖµµ¥Æ¬»úµÄ¶¨Ê±Æ÷1µÄ·½Ê½Ñ¡Ôñ²¨ÌØÂÊ ¡£¸Ã×Ó³ÌÐòÖ»ÄÜÓÃÓÚ¸´Î»Ä£Ê½                      
+ 326          //--------------------------------------------------
+ 327          void init_serialcomm(void)
+ 328          {
+ 329   1          SCON = 0x50;                                        //´®¿Ú¹¤×÷ÔÚÄ£Ê½1,ËÙÂÊ57600bps
+ 330   1                PCON |= 0x80;       //SMOD=1; 
+ 331   1                TMOD = 0x21;
+ 332   1                TH1  = 0xff;
+ 333   1                TL1  = 0xfa;
+ 334   1                TR1  = 1;
+ 335   1          //IE   |= 0x90;       //Enable Serial Interrupt 
+ 336   1          TR1   = 1;          // timer 1 run
+ 337   1          ES=1;
+ 338   1      }
+ 339          //¶¨Ê±Æ÷0³õÊ¼»¯
+ 340          void    T0_Ini() reentrant using 0              //¶¨Ê±Æ÷0³õÊ¼»¯,10msÖÐ¶ÏÒ»´Î
+ 341          {
+ 342   1              TR0     = 0;
+ 343   1              TF0     = 0;
+ 344   1              TH0     = 0xdc;
+ 345   1              TL0     = 0x31;
+ 346   1              TR0     = 1;
+ 347   1              ET0     = 1;
+ 348   1      }
+ 349          //Ïò´®¿Ú·¢ËÍÒ»¸ö×Ö·û 
+ 350          void send_char_com(unsigned char ch)  
+ 351          {
+ 352   1          LED1=0;
+ 353   1              SBUF=ch;
+ 354   1          while(!TI);
+ 355   1          TI=0;
+ 356   1              LED1=1;
+ 357   1      }
+ 358          
+ 359          //Ïò´®¿Ú·¢ËÍÒ»¸ö×Ö·û´®£¬strlenÎª¸Ã×Ö·û´®³¤¶È 
+ 360          void send_string_com(unsigned char *str,unsigned int strlen)
+ 361          {
+ 362   1          unsigned int k=0;
+ 363   1          do 
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 7   
+
+ 364   1          {
+ 365   2              send_char_com(*(str + k));
+ 366   2              k++;
+ 367   2              WDT_CONTR=0x3b;  //Î¹¹· 1.13s;
+ 368   2          } while(k < strlen);
+ 369   1      }
+ 370          
+ 371          //¶¨Ê±Æ÷0ÖÐ¶Ï,²»¹»8¸ö¾ÍÔÚ´Ë·¢ËÍ
+ 372          void T0_int(void) interrupt INT_T0              //10ms½øÈëÖÐ¶ÏÒ»´Î.
+ 373          {
+ 374   1              //INT8U cntKeyBuf[5];          //¼üÅÌ»º³å»·¼ÆÊýÊý×é.
+ 375   1              //INT8U i,j;
+ 376   1              unsigned char i;
+ 377   1              unsigned int startIndex;
+ 378   1              TH0     = 0xdc;
+ 379   1              TL0     = 0x31;
+ 380   1              Pin_test=!Pin_test;
+ 381   1              if(cntComRxTimeout>=3)
+ 382   1              {
+ 383   2                      cntComRxTimeout=3;
+ 384   2                      if(cntComRxIndex!=0)
+ 385   2                      {
+ 386   3                              if(comRxDataBuf[0] >= cntComRxIndex - 1)        
+ 387   3                              {               
+ 388   4                                      setTimer(0, 0/CTIMER_MS);               /** ÊÕµ½Ò»×é´®¿ÚÊý¾Ý£¬¿ÉÒÔ·¢ÏÂÒ»×é´®¿ÚÊý¾Ý£¬¶ø²»±ØµÈ´ý³¬Ê± **/
+ 389   4                              }
+ 390   3                              startIndex = 0;
+ 391   3                              comRxLength=cntComRxIndex;
+ 392   3                              
+ 393   3                              while((comRxDataBuf[startIndex] <= comRxLength - 1) && (comRxDataBuf[comRxDataBuf[startIndex]] == 0xff)
+             -)        /** ¶à×éÊý¾Ý¼·ÔÚÒ»ÆðÁË£¬ÐèÒª×Ô¼º½âÎö³öÀ´ **/
+ 394   3                              {
+ 395   4                                      staComRx = COM_RX_DATA;
+ 396   4                                      flag_com_rx_finish = 1;
+ 397   4      
+ 398   4                                      for(i = startIndex; i < (startIndex + comRxDataBuf[startIndex] + 1); i++)
+ 399   4                                      {
+ 400   5                                              comRxDataCirl[comWrPoint][i - startIndex] = comRxDataBuf[i];
+ 401   5                                      }
+ 402   4                                      if(comRdPoint != ((comWrPoint + 1) % 6))   /** »¹ÓÐ»º³å»·¿ÉÓÃ, ¸üÐÂ»º³åÖ¸Õë¡£Èç¹û»º³å»·Âú£¬ÕâÀï»á¸²¸ÇÉ
+             -Ï´ÎÊÕµ½µÄÊý¾Ý **/
+ 403   4                                      {
+ 404   5                                              #if     0
+                                                      comWrPoint++;                                           /** The only position change WrPoint **/
+                                                      comWrPoint %= 6;
+                                                      #else
+ 408   5                                              updateWRPoint();
+ 409   5                                              #endif
+ 410   5                                      }
+ 411   4                                      
+ 412   4                                      startIndex = startIndex + comRxDataBuf[startIndex] + 1;
+ 413   4                                      comRxLength = comRxLength - comRxDataBuf[startIndex] - 1;
+ 414   4                              }
+ 415   3                      }
+ 416   2                      cntComRxIndex=0;
+ 417   2              }
+ 418   1              cntComRxTimeout++;
+ 419   1              CntCanTxTimeout++;
+ 420   1              if(CntCanTxTimeout>=50)          //CANÊý¾Ý·¢ËÍ500ms³¬Ê±
+ 421   1              {
+ 422   2                      CntCanTxTimeout=51;
+ 423   2                      flag_CanTxTimeout=1;
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 8   
+
+ 424   2              }
+ 425   1              CntCanRxTimeout++;
+ 426   1              if(CntCanRxTimeout>=50)          //CANÊý¾Ý½ÓÊÕ500ms³¬Ê±
+ 427   1              {
+ 428   2                      //CntCanRxTimeout=51;
+ 429   2                      CntCanRxTimeout=0;
+ 430   2                      flag_CanRxTimeout=1;
+ 431   2              }
+ 432   1              CntMainTimeout++;
+ 433   1              if(CntMainTimeout>=500)          //CAN5sÃ»ÓÐÊý¾Ý½ÓÊÕÊ±¸´Î»
+ 434   1              {
+ 435   2                      CntMainTimeout=501;
+ 436   2                      flag_CanMainTimeout=1;
+ 437   2              }
+ 438   1      
+ 439   1              if(cntRollTmr) cntRollTmr--;            /** ÂÖÑ¯·¢Ô¶³ÌÖ¡Ê±¼ä, ÔÝ¶¨70ms(Ô­Îª180ms) **/
+ 440   1              if(cntReqComTmr) cntReqComTmr--;        /** canbus·¢ËÍÑÓ³Ù£¬²é´®¿ÚÊý¾Ý, ÔÝ¶¨60ms **/
+ 441   1              if(cntComSndTmr) cntComSndTmr--;        /** ´®¿Ú·¢ËÍÑÓ³Ù£¬ÔÝ¶¨1000ms **/
+ 442   1      
+ 443   1      }
+ 444          //´®¿Ú½ÓÊÕÖÐ¶Ïº¯Êý 
+ 445          void serial () interrupt 4 using 1 
+ 446          {
+ 447   1              unsigned char ch;
+ 448   1        if(RI)
+ 449   1        {
+ 450   2              RI = 0;
+ 451   2              ET0=1;TR0=1;
+ 452   2          ch=SBUF;
+ 453   2          LED1=0;
+ 454   2              comRxDataBuf[cntComRxIndex++] = ch;
+ 455   2              cntComRxTimeout=0;
+ 456   2          LED1=1;
+ 457   2        }
+ 458   1      }
+ 459          //--------------------------------------------------
+ 460          //º¯ÊýÔ­ÐÍ£º  void ex0_int(void) interrupt 0 //using 1
+ 461          //¹¦    ÄÜ£º  ÖÐ¶Ï½ÓÊÕº¯Êý
+ 462          //Èë¿Ú²ÎÊý:   ÎÞ 
+ 463          //³ö¿Ú²ÎÊý:   RevceData[]Êý×é   
+ 464          //Ëµ    Ã÷:   µ±sja1000 ÊÕµ½ÕýÈ·µÄ±¨ÎÄÊ±,»á²úÉúintÖÐ¶Ï           
+ 465          //--------------------------------------------------
+ 466          void ex0_int(void) interrupt 0 using 1
+ 467          {
+ 468   1              unsigned char tt,tt1,length,i,RxData_Buf[10];
+ 469   1              i=0;
+ 470   1              msg++;
+ 471   1              
+ 472   1              //cntRollTmr = 0;                       /** ´Ë´¦ËÆÎÞÐèÒª **/
+ 473   1              //addTimer(2, (CROLLCYCLE * 9 / CTIMER_MS));    /** Ò»µ©ÊÕµ½Êý¾Ý£¬¾ÍÑÓ³¤±¾Ò»ÂÖÊ±¼ä²ÛÊ±³¤ **/
+ 474   1              if(rollDelayUpdate())
+ 475   1              {
+ 476   2                      setTimer(2, (CROLLCYCLE * 9 / CTIMER_MS));      /** ÊÕµ½Êý¾Ý£¬¿ÉÄÜÒªÑÓ³¤±¾Ò»ÂÖÊ±¼ä²ÛµÄÊ±³¤ **/
+ 477   2              }
+ 478   1              //CntMainTimeout=0;
+ 479   1              //flag_CanMainTimeout=0;
+ 480   1              if(msg==5)
+ 481   1              {
+ 482   2                      msg=0;
+ 483   2          //P34=0;
+ 484   2        }
+ 485   1        LED2=0;
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 9   
+
+ 486   1        SJA_BCANAdr=REG_INTERRUPT;
+ 487   1        if((*SJA_BCANAdr)&0x01)//²úÉúÁË½ÓÊÕÖÐ¶Ï,²¢ÇÒCAN½ÓÊÕÍê³ÉÒÑ¾­ÇåÁã
+ 488   1        {
+ 489   2              SJA_BCANAdr=REG_RXBuffer1;
+ 490   2          tt=*SJA_BCANAdr;
+ 491   2          tt1=*SJA_BCANAdr;
+ 492   2          length=tt1&0x0F;
+ 493   2          if ((tt&0x40)!=0x40)                   //Êý¾ÝÖ¡   ¼Ù= ÎªÔ¶³ÌÖ¡
+ 494   2          {
+ 495   3              SJA_BCANAdr =REG_RXBuffer1;          //ºê¶¨ÒåµÄ±äÁ¿²»ÄÜmemcpy(CanRevceData,REG_RXBuffer4,8);
+ 496   3              memcpy(RxData_Buf,SJA_BCANAdr,length+5);//¹¦ÄÜ£ºÓÉsrcËùÖ¸ÄÚ´æÇøÓò¸´ÖÆcount¸ö×Ö½Úµ½destËùÖ¸ÄÚ´æÇøÓò
+ 497   3              //for(i=0;i<length+2;i++)send_char_com(CanRevceData[i]);//·¢ËÍµ½´®¿Ú
+ 498   3              canRxCoorNum=RxData_Buf[2];
+ 499   3              tt=(RxData_Buf[3]>>4)&0x0f;
+ 500   3              tt1=RxData_Buf[3]&0x0f;
+ 501   3              memcpy(&CanRevceData[tt1*8],&RxData_Buf[5],length);
+ 502   3              if(0x0 != bytemap_test_set((unsigned int)tt1))
+ 503   3                      {
+ 504   4                              ;/** warning: the frame received, but now received again **/
+ 505   4                      }
+ 506   3              //if(tt==tt1)  //ÅÐ¶ÏÊý¾Ý°ü½áÊø
+ 507   3                      if(bytemap_isfull(tt + 1))    /** ÅÐ¶ÏÊý¾Ý°ü½áÊø. tt´Ó0¿ªÊ¼µÄÐòºÅ£¬ ¼Ó1ºó¾ÍÊÇµÄ1µÄ¸öÊý  **/
+ 508   3              {
+ 509   4                      flag_CanRxFinish=1;
+ 510   4                      CntCanRxLength=length+tt*8;
+ 511   4                              bytemap_clean_interrupt();
+ 512   4              }
+ 513   3                      #if     0
+                      else if(bytemap_isfull(tt + 1) == 0)
+                      {
+                              //send_string_com(byteMap,16);  /** ??????????????????? **/
+                      }
+                              #endif
+ 519   3              
+ 520   3              CntCanRxTimeout = 0; /** CANÊý¾Ý½ÓÊÕ³¬Ê±¼ÆÊýÇå0 **/
+ 521   3              //send_string_com(CanRevceData,CntCanRxLength);
+ 522   3          }
+ 523   2          BCAN_CMD_PRG(RRB_CMD);                  //ÊÍ·ÅSJA1000½ÓÊÕ»º³åÇø£¬****ÒÑ¾­ÐÞ¸Ä
+ 524   2        }
+ 525   1        LED2=1;
+ 526   1      }
+ 527          //--------------------------------------------------
+ 528          
+ 529          //³õÊ¼»¯cpu
+ 530          
+ 531          //--------------------------------------------------
+ 532          void Init_Cpu(void)                                  //µ¥Æ¬»ú³õÊ¼»¯,¿ª·ÅÍâ²¿ÖÐ¶Ï0
+ 533          {
+ 534   1           PX0=1;
+ 535   1           EX0=1;
+ 536   1           IT0=0;
+ 537   1          // EA=1;
+ 538   1      }
+ 539          
+ 540          //--------------------------------------------------
+ 541          //º¯ÊýÔ­ÐÍ£º   void main(void)
+ 542          
+ 543          void main(void)
+ 544          {
+ 545   1              unsigned char ss,i,j;
+ 546   1              unsigned char temptt;
+ 547   1              unsigned char i_buf;
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 10  
+
+ 548   1              unsigned int i_16u;
+ 549   1              unsigned int bufindex;
+ 550   1              //unsigned char dstAdress[2];
+ 551   1              unsigned char tabBuf[ROOM_NUM][2];
+ 552   1              //_reset_line:
+ 553   1              i_buf=0;
+ 554   1              rollCnt=0;
+ 555   1              i=0;
+ 556   1              CS=1;                //Æ¬Ñ¡ÔñÒý½Å
+ 557   1              EA=0;
+ 558   1              CntMainTimeout=0;
+ 559   1              flag_CanMainTimeout=0;
+ 560   1              key_temp=0xff;
+ 561   1              RSTCAN=0;
+ 562   1              delay1(500);
+ 563   1              RSTCAN=1;
+ 564   1              bytemap_clean_interrupt();              /** Don't change interrupt status**/
+ 565   1              Init_Cpu();
+ 566   1              init_serialcomm();     //³õÊ¼»¯´®¿Ú
+ 567   1              sendBuf_clean();
+ 568   1              T0_Ini();       //¶¨Ê±Æ÷0³õÊ¼»¯
+ 569   1              //³õÊ¼»¯SJA1000
+ 570   1              ss=Sja_1000_Init(1);
+ 571   1              WDT_CONTR=0x3b;  //Î¹¹· 1.13s;
+ 572   1              if(ss!=0)             //³õÊ¼»¯Ê§°Ü
+ 573   1              {
+ 574   2                      ss=Sja_1000_Init(1);
+ 575   2                      LED1=0;
+ 576   2                      LED2=0;
+ 577   2                      WDT_CONTR=0x3b;  //Î¹¹· 1.13s;
+ 578   2              }
+ 579   1              LED2=1;
+ 580   1              LED1=1;
+ 581   1      
+ 582   1              flag_com_rx_finish=0;
+ 583   1              comRxLength=0;
+ 584   1              cntComRxIndex=0;
+ 585   1              cntComRxTimeout=0;
+ 586   1              cntRollTmr = 0;
+ 587   1              staComRx=COM_RX_NONE;
+ 588   1      
+ 589   1              //CntComRxTimout=0;
+ 590   1              //flag_ComTxAddr=0;
+ 591   1              flag_CanRxFinish=0;
+ 592   1              flag_CanReset=0;
+ 593   1              flag_Roll = 0;
+ 594   1      
+ 595   1              for(i=0;i<COORD_NUM;i++)
+ 596   1              {
+ 597   2                      for(j=0;j<ROOM_NUM;j++)
+ 598   2                      {
+ 599   3                              RoomTable[i][j][0]=0;
+ 600   3                              RoomTable[i][j][1]=0;
+ 601   3                      }
+ 602   2              }
+ 603   1              comWrPoint=0;
+ 604   1              comRdPoint=0;
+ 605   1              for(i=0;i<6;i++)
+ 606   1              {
+ 607   2                      for(j=0;j<MAX_BUF_NUM;j++)
+ 608   2                      {
+ 609   3                              comRxDataCirl[i][j]=0;
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 11  
+
+ 610   3                      }
+ 611   2              }
+ 612   1              EA=1; //³õÊ¼»¯³É¹¦£¬¿ª×ÜÖÐ
+ 613   1              while(1)
+ 614   1              {
+ 615   2                      WDT_CONTR=0x3b;  //Î¹¹· 1.13s;
+ 616   2                      //--------------------------------------------------
+ 617   2      
+ 618   2                      //if((comWrPoint!=comRdPoint) && (CntMainTimeout >= 18))     //´®¿Ú»º³å»·ÖÐÓÐÊý¾Ý
+ 619   2              if(getTimer(1) == 0)                                    /** Ïòcanbus·¢Êý¾ÝµÄÊ±¼äµ½ÁË **/
+ 620   2              {
+ 621   3                      setTimer(1, 30/CTIMER_MS);
+ 622   3                      //flag_ReqComPort = 0;
+ 623   3                      if(comWrPoint!=comRdPoint)          //´®¿Ú»º³å»·ÖÐÓÐÊý¾Ý
+ 624   3                      {
+ 625   4              
+ 626   4                              flag_com_rx_finish=0;   /** ËÆÃ»ÓÐÓÃµ½? **/
+ 627   4                              //comSendLength=comRxLength+1;   //comRxLength = comRxDataBuf[0]+1
+ 628   4                              comSendLength=comRxDataCirl[comRdPoint][0]+2;
+ 629   4                              comSendDataBuf[0]=comRxDataCirl[comRdPoint][0]+1;
+ 630   4                              comSendDataBuf[1]=0x02;
+ 631   4                              comSendDataBuf[2]=0;
+ 632   4                              comSendDataBuf[3]=0;
+ 633   4                              comSendDataBuf[4]=comRxDataCirl[comRdPoint][2];
+ 634   4                              comSendDataBuf[5]=comRxDataCirl[comRdPoint][3];
+ 635   4                              for(i_16u=6;i_16u<comSendLength-1;i_16u++)
+ 636   4                              {
+ 637   5                                      comSendDataBuf[i_16u]=comRxDataCirl[comRdPoint][i_16u-2];
+ 638   5                              }
+ 639   4                              comSendDataBuf[comSendLength-1]=0xff;
+ 640   4                              //¼ÓÈëÑ°Ö·¹¦ÄÜ
+ 641   4                              for(j=0;j<COORD_NUM;j++)
+ 642   4                              {
+ 643   5                                      for(i=0;i<ROOM_NUM;i++)
+ 644   5                                      {
+ 645   6                                              if((RoomTable[j][i][0]==comSendDataBuf[4])&&(RoomTable[j][i][1]==comSendDataBuf[5]))break;
+ 646   6                                      }
+ 647   5                                      if(i<ROOM_NUM)//break;  //½ÓÊÕµ½µÄÔÚ±í¸ñÄÚ
+ 648   5                                      {
+ 649   6                                              packAcr0=j;
+ 650   6                                              packAcr1=0x34;
+ 651   6                                              CAN_Send_Large(comSendDataBuf,comSendLength);
+ 652   6                                      }
+ 653   5                              }
+ 654   4                              staComRx=COM_RX_NONE;
+ 655   4                              #if     0
+                                      comRdPoint++;                   /** The only position that change RdPoint **/
+                                      comRdPoint%=6;
+                                      #else
+ 659   4                              updateRDPoint();
+ 660   4                              #endif
+ 661   4              
+ 662   4                              //cntRollTmr = 0; //¿ÉÉèÆäËüÊý¾Ý,Èç10   /** ½«·¢ËÍÔ¶³ÌÖ¡µÄ¼ÆÊ±Æ÷Çå0, ÍÆ³Ù¶ÔÏÂÒ»Ð­µ÷Æ÷µÄÂÖÑ¯£¬µÈ´ý¿
+             -ÉÄÜµÄÏÂÒ»×éÊý¾Ý **/
+ 663   4                      }
+ 664   3              }
+ 665   2                      //if(CntMainTimeout >= 18)      /** ÂÖÑ¯·¢Ô¶³ÌÖ¡(ÊÕcanÊý¾Ý¼°·¢canÊý¾ÝÊ±²»ÄÜÂÖÑ¯£¬ÐèÒª¼ÆÊ±Çå0) **/
+ 666   2                      //if(flag_Roll == 1)
+ 667   2                      if(getTimer(2) == 0)            /** ÂÖÑ¯·¢Ô¶³ÌÖ¡ **/
+ 668   2                      {
+ 669   3                              setTimer(2, CROLLCYCLE/CTIMER_MS);      /** ÏÂÒ»Ê±¼ä²Û¼ÆÊ±¿ªÊ¼ **/
+ 670   3                              
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 12  
+
+ 671   3                              //cntRollTmr = 0;
+ 672   3                              //flag_Roll = 0;        
+ 673   3                              
+ 674   3                              canSendRtr(rollCnt,0x34);
+ 675   3                              rollCnt++;
+ 676   3                              rollCnt%=16;
+ 677   3                              
+ 678   3                              rollDelayRestart();
+ 679   3                      }
+ 680   2                      if(flag_CanReset==1)
+ 681   2                      {
+ 682   3                              //LED1=0;
+ 683   3                              //LED2=0;
+ 684   3                              //while(1);
+ 685   3                              //goto _reset_line;
+ 686   3                      }
+ 687   2                      if(flag_CanMainTimeout==1)
+ 688   2                      {
+ 689   3                              //LED1=0;
+ 690   3                              //LED2=0;
+ 691   3                              //while(1);
+ 692   3                              //goto _reset_line;
+ 693   3                      }
+ 694   2                      //if(flag_com_rx_finish==1)      //Èç¹ûÈ¡Êý±êÖ¾ÒÑÖÃÎ»£¬¾Í½«¶Áµ½µÄÊý´Ó´®¿Ú·¢³ö
+ 695   2                      if(flag_CanRxTimeout == 1)
+ 696   2                      {
+ 697   3                              flag_CanRxTimeout=0;
+ 698   3                              bytemap_clean();
+ 699   3                      }
+ 700   2                      
+ 701   2                      if(flag_CanRxFinish==1)
+ 702   2                      {
+ 703   3                              bufindex = findEmptyIndex_Interrupt();
+ 704   3                              if(bufindex < CSEND_BUF_NUM)
+ 705   3                              {
+ 706   4                                      Can2ComBuf[bufindex][CLENGTH_ID] = CntCanRxLength;
+ 707   4                                      Can2ComBuf[bufindex][CCOORD_ID] = canRxCoorNum;
+ 708   4                                      for(i = 0; i < CntCanRxLength; i++)
+ 709   4                                      {
+ 710   5                                              Can2ComBuf[bufindex][CSTART_ID + i] = CanRevceData[i];
+ 711   5                                      }
+ 712   4                              }
+ 713   3                      }
+ 714   2                      //if(flag_CanRxFinish==1)
+ 715   2                      bufindex = findBusyIndex();             /** ÊÕµ½ **/
+ 716   2                      //if((bufindex < CSEND_BUF_NUM) && (getTimer(0) == 0))
+ 717   2                      if(bufindex < CSEND_BUF_NUM)
+ 718   2                      {
+ 719   3                              comSendLength = Can2ComBuf[bufindex][CLENGTH_ID] - 1;
+ 720   3                              comSendCoorNum = Can2ComBuf[bufindex][CCOORD_ID];
+ 721   3                              comSendDataBuf[0] = Can2ComBuf[bufindex][CSTART_ID + 0] - 1;
+ 722   3                              comSendDataBuf[1] = '0';
+ 723   3                              comSendDataBuf[2] = Can2ComBuf[bufindex][CSTART_ID + 2];
+ 724   3                              comSendDataBuf[3] = Can2ComBuf[bufindex][CSTART_ID + 3];
+ 725   3                              for(i_16u = 4; i_16u < comSendLength - 2; i_16u++)
+ 726   3                              {
+ 727   4                                      comSendDataBuf[i_16u] = Can2ComBuf[bufindex][i_16u + CSTART_ID + 2];;
+ 728   4                              }
+ 729   3                              comSendDataBuf[comSendLength - 2] = GetCrc8(comSendDataBuf, comSendLength - 2);
+ 730   3                              comSendDataBuf[comSendLength - 1] = 0xff;
+ 731   3                              
+ 732   3                              send_string_com(comSendDataBuf, comSendLength);
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 13  
+
+ 733   3                              
+ 734   3                              flag_CanRxFinish=0;
+ 735   3                              flag_CanRxHead=0;
+ 736   3                              setTimer(0, 100/CTIMER_MS);                     /** init cntComSndTmr 100ms,  **/
+ 737   3                              for(i=0;i<ROOM_NUM;i++)
+ 738   3                              {
+ 739   4                                      if((RoomTable[comSendCoorNum][i][0]==comSendDataBuf[2])&&(RoomTable[comSendCoorNum][i][1]==comSendData
+             -Buf[3]))break;
+ 740   4                              }
+ 741   3                              if(i>=ROOM_NUM)  //½ÓÊÕµ½µÄ²»ÔÚ±í¸ñÄÚ
+ 742   3                              {
+ 743   4                                      for(i=0;i<ROOM_NUM;i++)
+ 744   4                                      {
+ 745   5                                              if((RoomTable[comSendCoorNum][i][0]==0x00)&&(RoomTable[comSendCoorNum][i][1]==0x00))break;
+ 746   5                                      }
+ 747   4                                      if(i>=ROOM_NUM)     //±í¸ñÒÑÂú,Ôò½«×îÏÈ½øÈëµÄÉ¾³ý¡£½«´ËµØÖ·¼Óµ½×îºóÒ»¸ö
+ 748   4                                      {
+ 749   5                                              for(j=0;j<ROOM_NUM-1;j++)
+ 750   5                                              {
+ 751   6                                                      tabBuf[j][0]=RoomTable[comSendCoorNum][j+1][0];
+ 752   6                                                      tabBuf[j][1]=RoomTable[comSendCoorNum][j+1][1];
+ 753   6                                              }
+ 754   5                                              tabBuf[ROOM_NUM-1][0]=comSendDataBuf[2];
+ 755   5                                              tabBuf[ROOM_NUM-1][1]=comSendDataBuf[3];
+ 756   5                                              for(j=0;j<ROOM_NUM;j++)
+ 757   5                                              {
+ 758   6                                                      RoomTable[comSendCoorNum][j][0]=tabBuf[j][0];
+ 759   6                                                      RoomTable[comSendCoorNum][j][1]=tabBuf[j][1];
+ 760   6                                              }
+ 761   5                                      }
+ 762   4                                      else
+ 763   4                                      {
+ 764   5                                              RoomTable[comSendCoorNum][i][0]=comSendDataBuf[2];
+ 765   5                                              RoomTable[comSendCoorNum][i][1]=comSendDataBuf[3];
+ 766   5                                      }
+ 767   4                              }
+ 768   3                      }
+ 769   2                      //--------------------------------------------------
+ 770   2                      SJA_BCANAdr = REG_STATUS;
+ 771   2                      temptt=*SJA_BCANAdr;
+ 772   2                      if ((temptt&0x40)==0x40)                     //¶Á´íÎó×´Ì¬ÓÐ´íÎóÊ±¸´Î»
+ 773   2                      {
+ 774   3                              WDT_CONTR=0x3b;  //Î¹¹· 1.13s;
+ 775   3                              LED1=0;
+ 776   3                              LED2=0;
+ 777   3                              delay1(500);
+ 778   3                              Sja_1000_Init(0);
+ 779   3                              LED1=1;
+ 780   3                              LED2=1;
+ 781   3                              delay1(500);
+ 782   3                      }
+ 783   2              }
+ 784   1      }
+ 785          
+ 786          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   3459    ----
+   CONSTANT SIZE    =    256    ----
+   XDATA SIZE       =   3489     117
+   PDATA SIZE       =   ----    ----
+C51 COMPILER V9.00   MAIN                                                                  04/27/2012 12:01:46 PAGE 14  
+
+   DATA SIZE        =     17    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      5    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

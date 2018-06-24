@@ -1,0 +1,336 @@
+C51 COMPILER V9.00   TIMER                                                                 05/08/2012 16:12:19 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE TIMER
+OBJECT MODULE PLACED IN .\HEX\TIMER.obj
+COMPILER INVOKED BY: C:\Keil\C51\bin\C51.EXE C_HAL\TIMER.c LARGE OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\LST\
+                    -TIMER.lst) OBJECT(.\HEX\TIMER.obj)
+
+line level    source
+
+   1          /*******************************************************************************
+   2                  - Chip          : MG2450/2455
+   3                  - Vendor                : RadioPulse Inc, 2007.
+   4                  - Date          : 2009-02-23
+   5                  - Version               : VER 1.70
+   6          
+   7                  [2009-02-23]    VER 1.70
+   8                  - <#if ENABLE_COUNTER_UNCALLED ~ #endif> is added       
+   9                  - In ZHAL_TIMER3_SET()
+  10                          + Delete Timer3_Reload_TH3, Timer3_Reload_TL3
+  11                          + Timer3_Reload_TH3 = Reload32 >> 8;    ==> TH3 = Reload32 >> 8;
+  12                          + Timer3_Reload_TL3 = Reload32;                 ==> TL3 = Reload32;
+  13                          + Bug : if(us > 0x2FFF) Reload32 = 0x2FFF; ==> Reload32 = 0x2FFF << 1;
+  14                  - In ZHAL_TIMER2_SET()
+  15                          + Delete Timer2_Reload_TH2, Timer2_Reload_TL2
+  16                          + Timer2_Reload_TH2 = Reload16 >> 8;    ==> TH2 = Reload16 >> 8;
+  17                          + Timer2_Reload_TL2 = Reload16;                 ==> TL2 = Reload16;
+  18                          + Bug : overflow
+  19                                  if(us == 0)     Reload16 = 0;
+  20                                  else                    Reload16 = 2*us - 1;
+  21                                          ==>
+  22                                  if(us == 0)                     Reload16 = 0;
+  23                                  else if(us > 0x7FFF)    Reload16 = (0x7FFF << 1) - 1;           
+  24                                  else                                    Reload16 = (us << 1) - 1;
+  25          
+  26                  [2007-07-28] VER 1.61
+  27                  - ZHAL_COUNTER0_SET() : Only Comment is changed(Source is NOT changed)
+  28                          + Counter Input : P0.6 ==> P3.4
+  29                  - ZHAL_COUNTER1_SET() : Only Comment is changed(Source is NOT changed)
+  30                          + Counter Input : P0.7 ==> P3.5
+  31          
+  32                  [2007-12-11] VER 1.60
+  33                  - followings in ZHAL_TIMER0_SET() : (Because, Core Clock is changed from 16MHz to 8MHz)
+  34                          if(ms > 98)             _MS = 98;
+  35                          else                            _MS = ms;
+  36                  - followings in ZHAL_TIMER1_SET() : (Because, Core Clock is changed from 16MHz to 8MHz)
+  37                          if(ms > 98)             _MS = 98;
+  38                          else                            _MS = ms;               
+  39                  - followings in ZHAL_TIMER2_SET() : (Because, Core Clock is changed from 16MHz to 8MHz)
+  40                          if(us == 0)     Reload16 = 0;
+  41                          else                    Reload16 = us - 1;
+  42                  - followings in ZHAL_TIMER3_SET() : (Because, Core Clock is changed from 16MHz to 8MHz)
+  43                          if(us > 0x5FFF) Reload32 = 0x5FFF;
+  44                          else                            Reload32 = us;
+  45                  
+  46                  [2007-11-07] VER 1.50
+  47                  - Initial Version       
+  48          *******************************************************************************/
+  49          
+  50          #include "INCLUDE_TOP.h"
+  51          
+  52                  extern  UINT8 Timer0_Reload_TL0;
+  53                  extern  UINT8 Timer0_Reload_TH0;
+  54          
+C51 COMPILER V9.00   TIMER                                                                 05/08/2012 16:12:19 PAGE 2   
+
+  55          //-------------------------------------------------
+  56          // MODE0/1/2/3 is supported
+  57          //-------------------------------------------------
+  58          // ms(milli-second) @ 8MHz              : 1 ~ 98
+  59          // ms(milli-second) @ 16MHz     : 1 ~ 49
+  60          //-------------------------------------------------
+  61          void ZHAL_TIMER0_SET(UINT8 IntEna, UINT8 Priority, UINT8 Run, UINT8 ms) 
+  62          {
+  63   1              UINT32  Reload32;
+  64   1              UINT8   _EA;
+  65   1              UINT8   _MS;
+  66   1      
+  67   1              _EA = EA;
+  68   1              EA = 0;
+  69   1      
+  70   1              #if (OPERATE_AT_16MHz)
+                              if(ms > 49)             _MS = 49;
+                              else                            _MS = ms << 1;
+                      #else
+  74   1                      if(ms > 98)             _MS = 98;
+  75   1                      else                            _MS = ms;
+  76   1              #endif
+  77   1      
+  78   1              Reload32 = 2000;
+  79   1              Reload32 = Reload32 * _MS;              
+  80   1              Reload32 = (Reload32 / 3) & 0x0000FFFF;
+  81   1              Reload32 = 0xFFFF - Reload32 + 1;
+  82   1      
+  83   1              Timer0_Reload_TH0 = Reload32 >> 8;
+  84   1              Timer0_Reload_TL0 = Reload32;
+  85   1      
+  86   1              TH0 = Timer0_Reload_TH0;
+  87   1              TL0 = Timer0_Reload_TL0;        
+  88   1      
+  89   1              TMOD &= 0xF0;
+  90   1              TMOD |= 0x01;
+  91   1              
+  92   1              PT0 = Priority;
+  93   1      
+  94   1              if(Run)         TR0 = 1;
+  95   1              else                    TR0 = 0;
+  96   1      
+  97   1              if(IntEna)      ET0 = 1;
+  98   1              else                    ET0 = 0;
+  99   1      
+ 100   1              EA = _EA;
+ 101   1              
+ 102   1      
+ 103   1      }
+ 104          
+ 105          
+ 106          #if (ENABLE_COUNTER_UNCALLED)
+              // Counter Input : P3.4
+              void ZHAL_COUNTER0_SET(UINT8 IntEna, UINT8 Priority, UINT8 Run, UINT16 CountNum)
+              {
+                      UINT16  Reload16;
+                      UINT8   _EA;
+              
+                      _EA = EA;
+                      EA = 0;
+              
+                      Reload16 = 0xFFFF - CountNum + 1;
+C51 COMPILER V9.00   TIMER                                                                 05/08/2012 16:12:19 PAGE 3   
+
+                      Timer0_Reload_TH0 = Reload16 >> 8;
+                      Timer0_Reload_TL0 = Reload16;
+              
+                      TH0 = Timer0_Reload_TH0;
+                      TL0 = Timer0_Reload_TL0;
+              
+                      TMOD &= 0xF0;           // Clear bit[3:0], 12 bit counter
+                      TMOD |= 0x04;           // C/T0# = 1 : Counter Mode Operation
+              
+                      PT0 = Priority;
+              
+                      if(Run)         TR0 = 1;
+                      else                    TR0 = 0;
+              
+                      if(IntEna)      ET0 = 1;
+                      else                    ET0 = 0;
+              
+                      EA = _EA;
+              }
+              #endif
+ 137          
+ 138          
+ 139                  extern  UINT8 Timer1_Reload_TL1;
+ 140                  extern  UINT8 Timer1_Reload_TH1;
+ 141                  
+ 142          //-------------------------------------------------
+ 143          // MODE0/1/2/3 is supported
+ 144          //-------------------------------------------------
+ 145          // ms(milli-second) @ 8MHz              : 1 ~ 98
+ 146          // ms(milli-second) @ 16MHz     : 1 ~ 49
+ 147          //-------------------------------------------------
+ 148          void ZHAL_TIMER1_SET(UINT8 IntEna, UINT8 Priority, UINT8 Run, UINT8 ms) 
+ 149          {
+ 150   1      
+ 151   1              UINT32  Reload32;
+ 152   1              UINT8   _EA;
+ 153   1              UINT8   _MS;
+ 154   1      
+ 155   1              _EA = EA;
+ 156   1              EA = 0; 
+ 157   1      
+ 158   1              #if (OPERATE_AT_16MHz)
+                              if(ms > 49)             _MS = 49;
+                              else                            _MS = ms << 1;  
+                      #else
+ 162   1                      if(ms > 98)             _MS = 98;
+ 163   1                      else                            _MS = ms;
+ 164   1              #endif
+ 165   1              
+ 166   1              Reload32 = 2000;
+ 167   1              Reload32 = Reload32 * _MS;              
+ 168   1              Reload32 = (Reload32 / 3) & 0x0000FFFF;
+ 169   1              Reload32 = 0xFFFF - Reload32 + 1;
+ 170   1      
+ 171   1              Timer1_Reload_TH1 = Reload32 >> 8;
+ 172   1              Timer1_Reload_TL1 = Reload32;
+ 173   1      
+ 174   1              TH1 = Timer1_Reload_TH1;
+ 175   1              TL1 = Timer1_Reload_TL1;
+ 176   1              
+ 177   1              TMOD &= 0x0F;           // clear bit[7:4]
+ 178   1              TMOD |= 0x10;           // Mode=1(16 bit timer) 
+C51 COMPILER V9.00   TIMER                                                                 05/08/2012 16:12:19 PAGE 4   
+
+ 179   1              
+ 180   1              PT1 = Priority;
+ 181   1      
+ 182   1              if(Run)         TR1 = 1;
+ 183   1              else                    TR1 = 0;
+ 184   1      
+ 185   1              if(IntEna)              ET1 = 1;
+ 186   1              else                    ET1 = 0;
+ 187   1      
+ 188   1              EA = _EA;
+ 189   1      
+ 190   1      }
+ 191          
+ 192          
+ 193          #if (ENABLE_COUNTER_UNCALLED)
+              // Counter1 Input : P3.5
+              void ZHAL_COUNTER1_SET(UINT8 IntEna, UINT8 Priority, UINT8 Run, UINT16 CountNum)
+              {
+                      UINT16  Reload16;
+                      UINT8   _EA;
+              
+                      _EA = EA;
+                      EA = 0;
+              
+                      Reload16 = 0xFFFF - CountNum + 1;
+                      Timer1_Reload_TH1 = Reload16 >> 8;
+                      Timer1_Reload_TL1 = Reload16;
+              
+                      TH1 = Timer1_Reload_TH1;
+                      TL1 = Timer1_Reload_TL1;
+              
+                      TMOD &= 0x0F;           // Clear bit[7:4]
+                      TMOD |= 0x50;           // 16bit Counter Mode and C/T1# = 1 : Counter Mode Operation
+              
+                      PT1 = Priority;
+              
+                      if(Run)         TR1 = 1;
+                      else                    TR1 = 0;
+              
+                      if(IntEna)      ET1 = 1;
+                      else                    ET1 = 0;
+              
+                      EA = _EA;       
+              
+              }
+              #endif
+ 225          
+ 226          //-------------------------------------------------
+ 227          // us(micro-second) @ 8MHz      : 1 ~ 0xFFFF(65535)
+ 228          // us(micro-second) @ 16MHz     : 1 ~ 0x7FFF(32767)
+ 229          //-------------------------------------------------
+ 230          void ZHAL_TIMER2_SET(UINT8 IntEna, UINT8 Priority, UINT8 Run, UINT16 us) 
+ 231          {
+ 232   1              UINT16  Reload16;
+ 233   1              UINT8   _EA;
+ 234   1      
+ 235   1              _EA = EA;
+ 236   1              EA = 0;
+ 237   1      
+ 238   1              #if (OPERATE_AT_16MHz)
+                      //      if(us == 0)     Reload16 = 0;
+                      //      else                    Reload16 = 2*us - 1;
+C51 COMPILER V9.00   TIMER                                                                 05/08/2012 16:12:19 PAGE 5   
+
+                              if(us == 0)                     Reload16 = 0;
+                              else if(us > 0x7FFF)    Reload16 = (0x7FFF << 1) - 1;           
+                              else                                    Reload16 = (us << 1) - 1;
+                              
+                      #else
+ 246   1                      if(us == 0)     Reload16 = 0;
+ 247   1                      else                    Reload16 = us - 1;              
+ 248   1              #endif
+ 249   1                      
+ 250   1              TH2 = Reload16 >> 8;
+ 251   1              TL2 = Reload16;
+ 252   1      
+ 253   1              T2IP = Priority;
+ 254   1      
+ 255   1              if(Run) {       T23CON |= 0x02; }
+ 256   1              else            {       T23CON &= 0xFD; }
+ 257   1      
+ 258   1              if(IntEna)      T2IE = 1;
+ 259   1              else                    T2IE = 0;
+ 260   1      
+ 261   1              EA = _EA;
+ 262   1      }
+ 263          
+ 264          //-------------------------------------------------
+ 265          // us(micro-second) @ 8MHz      : 1 ~ 0x5FFF(24575)
+ 266          // us(micro-second) @ 16MHz     : 1 ~ 0x2FFF(12287)
+ 267          //-------------------------------------------------     
+ 268          /*void ZHAL_TIMER3_SET(UINT8 IntEna, UINT8 Priority, UINT8 Run, UINT16 us)
+ 269          {
+ 270                  UINT32  Reload32;
+ 271                  UINT8   _EA;
+ 272          
+ 273                  _EA = EA;
+ 274                  EA = 0;
+ 275          
+ 276                  #if (OPERATE_AT_16MHz)
+ 277                          if(us > 0x2FFF) Reload32 = 0x2FFF << 1;
+ 278                          else                            Reload32 = us << 1;
+ 279                  #else
+ 280                          if(us > 0x5FFF) Reload32 = 0x5FFF;
+ 281                          else                            Reload32 = us;
+ 282                  #endif
+ 283                  
+ 284                  Reload32 = Reload32 << 3;
+ 285                  Reload32 = Reload32 / 3;
+ 286                  if(Reload32 == 0)               Reload32 = 0;
+ 287                  else                                    Reload32 = Reload32 - 1;
+ 288          
+ 289                  TH3 = Reload32 >> 8;            // bit[15:8]
+ 290                  TL3 = Reload32;                 // bit[7:0]     
+ 291                  
+ 292                  T3IP = Priority;
+ 293          
+ 294                  if(Run) {       T23CON |=  0x08; }
+ 295                  else            {       T23CON &= 0xF7; }
+ 296          
+ 297                  if(IntEna)      T3IE = 1;
+ 298                  else                    T3IE = 0;
+ 299          
+ 300                  EA = _EA;
+ 301          }*/
+ 302          
+C51 COMPILER V9.00   TIMER                                                                 05/08/2012 16:12:19 PAGE 6   
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    464    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----      27
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,6 @@
+---- AppOption_TIMER1_ms Æ¥Åä (5 ÔÚ 2 ÎÄ¼þ ) ----
+Z_USER_CONFIG_ZC.h (c_user\app_zc):	#define	AppOption_TIMER1_ms		10		// 10ms
+Z_USER_ZC.c (c_user\app_zc):	ZHAL_TIMER1_SET(1, 0, 1, AppOption_TIMER1_ms);
+Z_USER_ZC.c (c_user\app_zc):			ZSYS_SET_UserTimer(0, (1000/ AppOption_TIMER1_ms));  //ÑÓ³Ù1000ms
+Z_USER_ZC.c (c_user\app_zc):				ZSYS_SET_UserTimer(0, (50/ AppOption_TIMER1_ms));  //ÑÓ³Ù50ms
+Z_USER_ZC.c (c_user\app_zc):		ZSYS_SET_UserTimer(0, (50/ AppOption_TIMER1_ms));  //ÑÓ³Ù50ms

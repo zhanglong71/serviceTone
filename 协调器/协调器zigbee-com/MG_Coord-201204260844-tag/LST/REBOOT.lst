@@ -1,0 +1,444 @@
+C51 COMPILER V9.00   REBOOT                                                                05/08/2012 16:12:21 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE REBOOT
+OBJECT MODULE PLACED IN .\HEX\REBOOT.obj
+COMPILER INVOKED BY: C:\Keil\C51\bin\C51.EXE C_USER\REBOOT.C LARGE OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\LS
+                    -T\REBOOT.lst) OBJECT(.\HEX\REBOOT.obj)
+
+line level    source
+
+   1          
+   2          /*******************************************************************************
+   3                  - Chip          : MG2450/2455
+   4                  - Vendor                : RadioPulse Inc, 2007.
+   5                  - Date          : 2010-05-28
+   6                  - Version               : VER 2.10
+   7          
+   8                  [2010-05-28]    VER 2.10
+   9                  - Modified for V1.70 of FLASH.c 
+  10          *******************************************************************************/
+  11          
+  12          
+  13          //
+  14          //
+  15          //
+  16          //      *.A51 must configured to have 4-banks
+  17          //      *.H03 contains reboot program which copy code from ext-flash to int-flash
+  18          //      0x1200,0x1400,0x1600 has code-banking code, which have same image
+  19          //      
+  20          #include "INCLUDE_TOP.h"
+  21          
+  22          void    ZOTA_SPI_ON();
+  23          void    ZOTA_SPI_OFF();
+  24          void    ZOTA_SPI_SET(UINT8 Ena, UINT8 Mode, UINT8 Speed);
+  25          UINT8   ZOTA_SPI_MASTER_POLLING(UINT8 SendByte);
+  26          
+  27          UINT16 tmpadd(UINT16 a, UINT16 b)
+  28          {
+  29   1              return(a+b);
+  30   1      }
+  31          
+  32          
+  33          
+  34          
+  35          void ZOTA_REBOOT()
+  36          {
+  37   1              UINT16  T_Addr;
+  38   1              UINT16  Over64K;
+  39   1      
+  40   1              UINT16  Tmp16;  
+  41   1      
+  42   1              UINT16  i;
+  43   1              UINT8   len;
+  44   1              UINT8   dst;
+  45   1              UINT8   op_int_flash_erase;
+  46   1              UINT8   op_ext_flash_read;
+  47   1              UINT8   op_int_flash_write;
+  48   1              UINT8   op_reboot;
+  49   1              UINT8   Tmp8;
+  50   1              UINT16  L_Addr;
+  51   1              UINT16  Var1;
+  52   1              UINT8   _P0OEN;
+  53   1              UINT8   _EA;
+  54   1      
+C51 COMPILER V9.00   REBOOT                                                                05/08/2012 16:12:21 PAGE 2   
+
+  55   1              char    PageBuf[512];
+  56   1      
+  57   1              WDT |= 0x10;    // set bit[4]. WDT Write Enable
+  58   1              WDT &= 0xF7;    // clear bit[3]. WDT Disable
+  59   1      
+  60   1              _EA = EA;
+  61   1              _P0OEN = P0OEN; 
+  62   1      
+  63   1              EA=0;
+  64   1              P0OEN &= ~(0x01<<0);
+  65   1              P0OEN &= ~(0x01<<1);
+  66   1              P0OEN &= ~(0x01<<2);
+  67   1              P0OEN &= ~(0x01<<3);
+  68   1      
+  69   1              L_Addr  = 0;
+  70   1              
+  71   1              op_int_flash_erase=1;
+  72   1              op_ext_flash_read=1;
+  73   1              op_int_flash_write=1;
+  74   1              op_reboot=1;
+  75   1      
+  76   1              //
+  77   1              //
+  78   1      #if     (OPERATE_AT_16MHz)
+                      /* 16MHz Parameters */
+                      xFCN_TERS1      =0x04; 
+                      xFCN_TERS0      =0xE2; 
+                      xFCN_TME1       =0x04; 
+                      xFCN_TME0       =0xE2; 
+                      xFCN_TPRG       =0x14;
+                      xFCN_TRCV       =0x10;
+                      xFCN_THV1       =0x00; 
+                      xFCN_THV0       =0xFA; 
+                      xFCN_TNVS       =0x50;
+                      xFCN_TNVH       =0x50;
+                      xFCN_TPGS       =0xA0;
+                      xFCN_TNVH1      =0x64; 
+              #else
+  93   1              /* 08MHz Parameters */
+  94   1              xFCN_TERS1      =0x02;
+  95   1              xFCN_TERS0      =0x71;
+  96   1              xFCN_TME1       =0x02;
+  97   1              xFCN_TME0       =0x71;
+  98   1              xFCN_TPRG       =0x0A;
+  99   1              xFCN_TRCV       =0x08;
+ 100   1              xFCN_THV1       =0x00;
+ 101   1              xFCN_THV0       =0x7C;
+ 102   1              xFCN_TNVS       =0x28;
+ 103   1              xFCN_TNVH       =0x28;
+ 104   1              xFCN_TPGS       =0x50;
+ 105   1              xFCN_TNVH1      =0x32;
+ 106   1      #endif
+ 107   1      
+ 108   1              if( (xPDCON & 0x04) == 0)       goto JP_REBOOT_RET;
+ 109   1              if(xFCN_CMD != 0x80)            goto JP_REBOOT_RET;
+ 110   1              if(xFCN_LEN1 != 0x00)           goto JP_REBOOT_RET;
+ 111   1              if(xFCN_LEN0 != 0x00)           goto JP_REBOOT_RET;
+ 112   1              if(xFCN_ADR1 != 0x70)   goto JP_REBOOT_RET;
+ 113   1              if(xFCN_ADR0 != 0x00)   goto JP_REBOOT_RET;
+ 114   1              //
+ 115   1              //
+ 116   1      
+C51 COMPILER V9.00   REBOOT                                                                05/08/2012 16:12:21 PAGE 3   
+
+ 117   1              //
+ 118   1              //      Bank & library code @ 0x1200 ~ 0x17ff
+ 119   1              Var1 = 128;
+ 120   1              for(L_Addr=0x0000;L_Addr<0x6000;L_Addr=tmpadd(L_Addr,Var1))     // 96KB ( 4B * 0x6000 )
+ 121   1              { 
+ 122   2              //      if(F_Addr == 0x1200) continue;
+ 123   2              //      if(F_Addr == 0x1400) continue;
+ 124   2              //      if(F_Addr == 0x1600) continue;
+ 125   2                      //
+ 126   2                      //      int-flash erase
+ 127   2                      //
+ 128   2                      if(op_int_flash_erase)
+ 129   2                      {
+ 130   3                              P0_0 = ~P0_0;
+ 131   3                              P0_1 = 0;
+ 132   3                              P0_2 = 0;
+ 133   3      
+ 134   3                              xFCN_NOWAIT = 0x00;
+ 135   3                      
+ 136   3                              while(xFCN_STS0 & 0x01);
+ 137   3                      
+ 138   3                              _nop_();
+ 139   3                              _nop_();
+ 140   3                              _nop_();
+ 141   3                              _nop_();
+ 142   3                      
+ 143   3                              //pTmp = (UINT8 *)&L_Addr;
+ 144   3      
+ 145   3                              xFCN_ADR0 = L_Addr;             // LOW
+ 146   3                              xFCN_ADR1 = L_Addr>>8;  // HIGH
+ 147   3                              xFCN_LEN1 = 0;
+ 148   3                              xFCN_LEN0 = 1;
+ 149   3      
+ 150   3                              xFCN_CMD  = 0x02;       // Page Erase
+ 151   3                      
+ 152   3                              _nop_();
+ 153   3                              _nop_();
+ 154   3                              _nop_();
+ 155   3                              _nop_();
+ 156   3                      
+ 157   3                              while(xFCN_STS0 & 0x01) ;
+ 158   3                      }
+ 159   2                      //
+ 160   2                      //      ext-flash read
+ 161   2                      //
+ 162   2      
+ 163   2      
+ 164   2      
+ 165   2                      if(op_ext_flash_read)
+ 166   2                      {
+ 167   3                              P0_0 = 0;
+ 168   3                              P0_1 = ~P0_1;
+ 169   3                              P0_2 = 0;
+ 170   3                              // Read Page Data : cmd-addr/3-data/1
+ 171   3                              #define spiREAD                 0x03 
+ 172   3                              //
+ 173   3      
+ 174   3                              T_Addr = L_Addr + L_Addr + L_Addr + L_Addr;
+ 175   3                              Over64K=(L_Addr >= 0x4000)? 1 : 0; 
+ 176   3                              //pTmp = (UINT8 *)&T_Addr;
+ 177   3      
+ 178   3                              ZOTA_SPI_ON();
+C51 COMPILER V9.00   REBOOT                                                                05/08/2012 16:12:21 PAGE 4   
+
+ 179   3                              ZOTA_SPI_MASTER_POLLING(spiREAD);
+ 180   3                              ZOTA_SPI_MASTER_POLLING(Over64K);
+ 181   3                              ZOTA_SPI_MASTER_POLLING(T_Addr>>8);
+ 182   3                              ZOTA_SPI_MASTER_POLLING(T_Addr);
+ 183   3                              
+ 184   3                              Tmp8=0;
+ 185   3                              while(1)
+ 186   3                              {
+ 187   4                                      Tmp16 = ZOTA_SPI_MASTER_POLLING(0);
+ 188   4                                      PageBuf[Tmp8] = Tmp16;
+ 189   4                                      Tmp8=Tmp8+1;
+ 190   4                                      if(Tmp8==0) break;      
+ 191   4                              }
+ 192   3                              ZOTA_SPI_OFF();
+ 193   3              
+ 194   3                              T_Addr = L_Addr + L_Addr + L_Addr + L_Addr + 256;
+ 195   3                              Over64K=(L_Addr >= 0x4000)? 1 : 0; 
+ 196   3                              //pTmp = (UINT8 *)&T_Addr;
+ 197   3      
+ 198   3                              ZOTA_SPI_ON();
+ 199   3                              ZOTA_SPI_MASTER_POLLING(spiREAD);
+ 200   3                              ZOTA_SPI_MASTER_POLLING(Over64K);
+ 201   3                              ZOTA_SPI_MASTER_POLLING(T_Addr>>8);
+ 202   3                              ZOTA_SPI_MASTER_POLLING(T_Addr);
+ 203   3                      
+ 204   3                              Tmp8=0;
+ 205   3                              while(1)
+ 206   3                              {
+ 207   4                                      Tmp16 = ZOTA_SPI_MASTER_POLLING(0);
+ 208   4                                      PageBuf[256+Tmp8] = Tmp16;
+ 209   4                                      Tmp8=Tmp8+1;
+ 210   4                                      if(Tmp8==0) break;      
+ 211   4                              }
+ 212   3                              ZOTA_SPI_OFF();
+ 213   3      
+ 214   3                      }
+ 215   2                      //
+ 216   2                      //      int-flash write
+ 217   2                      //
+ 218   2                      if(op_int_flash_write)
+ 219   2                      {
+ 220   3                              P0_0 = 0;
+ 221   3                              P0_1 = 0;
+ 222   3                              P0_2 = ~P0_2;
+ 223   3      
+ 224   3                              while(xFCN_STS0&0x01);
+ 225   3      
+ 226   3                              i = 0;
+ 227   3                              dst = L_Addr;
+ 228   3                              len = 128;
+ 229   3                              
+ 230   3                              while(len)
+ 231   3                              {
+ 232   4                                      //pTmp = (UINT8 *)&dst;
+ 233   4      
+ 234   4                                      xFCN_ADR0 = dst;
+ 235   4                                      xFCN_ADR1 = L_Addr>>8;
+ 236   4      
+ 237   4                                      xFCN_DAT3 = PageBuf[i+3];
+ 238   4                                      xFCN_DAT2 = PageBuf[i+2];
+ 239   4                                      xFCN_DAT1 = PageBuf[i+1];
+ 240   4                                      xFCN_DAT0 = PageBuf[i+0];                                                                                       
+C51 COMPILER V9.00   REBOOT                                                                05/08/2012 16:12:21 PAGE 5   
+
+ 241   4                                      
+ 242   4                                      xFCN_CMD  = 0x01;
+ 243   4                                      
+ 244   4                                      _nop_();
+ 245   4                                      _nop_();
+ 246   4                                      _nop_();
+ 247   4                                      _nop_();
+ 248   4                      
+ 249   4                                      i   += 4;               /* byte addr */
+ 250   4                                      dst += 1;               /* word addr */
+ 251   4                                      len -= 1;               /* word wlen */
+ 252   4                              }
+ 253   3                              while(xFCN_STS0 & 0x01);
+ 254   3                      }
+ 255   2                      //
+ 256   2                      //
+ 257   2              }//for loop
+ 258   1      
+ 259   1              //
+ 260   1              //
+ 261   1              xFCN_CMD        =0x80;          /* protect bit set */
+ 262   1              xFCN_ADR1       =0x70;          /* address register parking at 0x6000-0x7FFF */
+ 263   1              xFCN_ADR0       =0x00;
+ 264   1              xFCN_LEN1       =0x00;          /* length register parking with 0x0000 */
+ 265   1              xFCN_LEN0       =0x00;
+ 266   1              xFCN_TERS1      =0x00;          /* flash timing parameters parking with all zero */
+ 267   1              xFCN_TERS0      =0x00;
+ 268   1              xFCN_TME1       =0x00;
+ 269   1              xFCN_TME0       =0x00;
+ 270   1              xFCN_TPRG       =0x00;
+ 271   1              xFCN_TRCV       =0x00;
+ 272   1              xFCN_THV1       =0x00;
+ 273   1              xFCN_THV0       =0x00;
+ 274   1              xFCN_TNVS       =0x00;
+ 275   1              xFCN_TNVH       =0x00;
+ 276   1              xFCN_TPGS       =0x00;
+ 277   1              xFCN_TNVH1      =0x00;
+ 278   1              //
+ 279   1              //
+ 280   1      
+ 281   1              if(op_reboot)
+ 282   1              {
+ 283   2                      EA=0;
+ 284   2                      WDT = 0x01;
+ 285   2                      WDT |= 0x10;
+ 286   2                      WDT |= 0x08;
+ 287   2                      while(1) ;
+ 288   2              }
+ 289   1      
+ 290   1              JP_REBOOT_RET:
+ 291   1              P0OEN = _P0OEN;
+ 292   1              EA = _EA;
+ 293   1      
+ 294   1              WDT |= 0x10;    // set bit[4]. WDT Write Enable
+ 295   1              WDT |= 0x08;    // set bit[3]. WDT Enable
+ 296   1              
+ 297   1      }
+ 298          
+ 299          
+ 300                  
+ 301          
+ 302          
+C51 COMPILER V9.00   REBOOT                                                                05/08/2012 16:12:21 PAGE 6   
+
+ 303                  
+ 304          
+ 305          UINT8 ZOTA_SPI_MASTER_POLLING(UINT8 SendByte)
+ 306          {
+ 307   1      UINT8   Tmp8;
+ 308   1      UINT8   _EA;
+ 309   1      
+ 310   1      _EA=EA;
+ 311   1      EA=0;
+ 312   1      
+ 313   1              xSPCR &= ~(0x01<<7);    // Clear SPI Interrupt
+ 314   1              xSPDR = SendByte;
+ 315   1              // Polling
+ 316   1              while(1) if(xSPSR & 0x80) break;
+ 317   1      
+ 318   1              Tmp8 = xSPDR;
+ 319   1              xSPSR &= ~(0x01<<7);                    // Int Clear, bit[7]=0
+ 320   1              if(xSPSR & 0x40) xSPSR &= 0xBF; // Write-Collision Clear, bit[6]=0
+ 321   1      
+ 322   1      EA=_EA;
+ 323   1      
+ 324   1      
+ 325   1              return  Tmp8;
+ 326   1      }
+ 327                  
+ 328          
+ 329          #define SPI_CSN         P3_7
+ 330          #define SPI_CLK         P3_6
+ 331          #define SPI_DO          P3_5
+ 332          #define SPI_DI          P3_4
+ 333          
+ 334          void ZOTA_SPI_SET(UINT8 Ena, UINT8 Mode, UINT8 Speed)
+ 335          {
+ 336   1              UINT8   Div;
+ 337   1      
+ 338   1              if(Speed == 1)          Div = 0x05;
+ 339   1              else if(Speed == 2)     Div = 0x03;
+ 340   1              else if(Speed == 3)     Div = 0x04;
+ 341   1              else if(Speed > 9)      Div = 0x0B;
+ 342   1              else                            Div = Speed + 2;
+ 343   1      
+ 344   1              xSPCR = 0x00;
+ 345   1              xSPER = 0x00;
+ 346   1      
+ 347   1              xSPCR |= Div & 0x03 ;
+ 348   1              xSPER |= (Div & 0x0C) >> 2;     
+ 349   1              
+ 350   1              if(Ena)
+ 351   1              {
+ 352   2                      if(Mode & 0x10) // Master
+ 353   2                      {
+ 354   3                              SPI_DI = 1;             
+ 355   3                              SPI_DO = (Mode & 0x08)? 1 : 0;
+ 356   3                              SPI_CLK = (Mode & 0x08)? 1 : 0;
+ 357   3                              SPI_CSN = 0;
+ 358   3      
+ 359   3                              P3REN &= 0x0F;          // P3REN = 0000_xxxx
+ 360   3                              P3REN |= 0xE0;          // P3REN = 111x_xxxx    --> P3REN = 1110_xxxx
+ 361   3                              P3OEN |= 0xF0;          // P3OEN = 1111_xxxx
+ 362   3                              P3OEN &= 0x1F;          // P3OEN = 000x_xxxx    --> P3OEN = 0001_xxxx
+ 363   3                      }
+ 364   2                      else            // Slave Mode
+C51 COMPILER V9.00   REBOOT                                                                05/08/2012 16:12:21 PAGE 7   
+
+ 365   2                      {
+ 366   3                              SPI_DI = 1;             
+ 367   3                              SPI_DO = (Mode & 0x08)? 1 : 0;
+ 368   3                              SPI_CLK = 1;
+ 369   3                              SPI_CSN = 1;
+ 370   3      
+ 371   3                              P3REN &= 0x0F;          // P3REN = 0000_xxxx
+ 372   3                              P3REN |= 0x20;          // P3REN = xx1x_xxxx    --> P3REN = 0010_xxxx
+ 373   3                              P3OEN |= 0xF0;          // P3OEN = 1111_xxxx
+ 374   3                              P3OEN &= 0xDF;          // P3OEN = xx0x_xxxx    --> P3OEN = 1101_xxxx                   
+ 375   3                      }
+ 376   2              
+ 377   2                      xSPCR |= (Mode & 0x3C) ;        
+ 378   2                      xSPCR |= 0xC0;          // bit[7;6] = 2'b11, if bit[6] is 1 from 0, RD/WR pointer is reset              
+ 379   2                      SPIIE = 1;
+ 380   2      
+ 381   2                      if( (Mode & 0x10) == 0) // Slave Mode
+ 382   2                      {
+ 383   3                              xSPDR = 0x55;           // 1st Dummy Write
+ 384   3                      }               
+ 385   2                      
+ 386   2              }
+ 387   1              else
+ 388   1              {
+ 389   2                      xSPCR = 0x00;
+ 390   2                      SPIIE = 0;
+ 391   2              }
+ 392   1      }
+ 393          
+ 394          void ZOTA_SPI_ON()
+ 395          {
+ 396   1              ZOTA_SPI_SET(1,0x10,0x01);
+ 397   1      }
+ 398          
+ 399          void  ZOTA_SPI_OFF()
+ 400          {
+ 401   1              ZOTA_SPI_SET(0,0x00,0x00);
+ 402   1              // input with pullup
+ 403   1              //
+ 404   1              P3OEN = (1<<7);
+ 405   1              P3REN &= ~(1<<7);
+ 406   1      }
+ 407          
+ 408          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    975    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----     529
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

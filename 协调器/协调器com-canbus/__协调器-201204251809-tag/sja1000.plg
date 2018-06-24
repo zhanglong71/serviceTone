@@ -1,0 +1,17 @@
+<html>
+<body>
+<pre>
+<h1>礦ision Build Log</h1>
+<h2>Project:</h2>
+F:\work\huarain\Code\servceTone\serverTone\协调器\协调器com-canbus\__协调器-201204251809-tag\sja.uvproj
+Project File Date:  04/14/2012
+
+<h2>Output:</h2>
+Build target 'Target 1'
+assembling STARTUP.A51...
+compiling SJA1000.c...
+compiling main.c...
+linking...
+Program Size: data=44.0 xdata=2967 code=4496
+creating hex file from "sja1000"...
+"sja1000" - 0 Error(s), 0 Warning(s).

@@ -1,0 +1,805 @@
+C51 COMPILER V9.00   UTIL_APP                                                              05/08/2012 16:12:19 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE UTIL_APP
+OBJECT MODULE PLACED IN .\HEX\UTIL_APP.obj
+COMPILER INVOKED BY: C:\Keil\C51\bin\C51.EXE C_UTIL\UTIL_APP.c LARGE OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\
+                    -LST\UTIL_APP.lst) OBJECT(.\HEX\UTIL_APP.obj)
+
+line level    source
+
+   1          
+   2          /*******************************************************************************
+   3                  - Chip          : MG2450/2455
+   4                  - Vendor                : RadioPulse Inc, 2007.
+   5                  - Date          : 2010-03-02
+   6                  - Version               : VER 2.10      
+   7          
+   8                  [2010-03-02] VER 2.10
+   9                  - For ZigBeePRO Development Kit V2.10
+  10          *******************************************************************************/
+  11          
+  12          #include "INCLUDE_TOP.h"
+  13          #include "INCLUDE_STACK.h"
+  14          
+  15          #include "C_HAL/UART.h"
+  16          #include "C_HAL/WDT.h"
+  17          
+  18          #define KEYBOARD_BACK           0x08
+  19          #define KEYBOARD_CarryRet       0x0D
+  20          #define KEYBOARD_LineFeed       0x0A
+  21          #define KEYBOARD_SPACE  0x20
+  22          
+  23          /***********************************************************************************
+  24           *
+  25           *      NAME            : zPrintf()
+  26           *
+  27           *      DESCRIPTION     : Formats a series of strings and numeric values. And, it builds a string to write 
+  28           *              via UART. It is similar to the printf() of the general C-Language
+  29           *
+  30           *      PARAMETER       : 
+  31           *              Port - UART port number. 0=UART0, 1=UART1
+  32           *              fmt - pointer to a format string
+  33           *
+  34           *      RETURN          : None
+  35           *
+  36           *      NOTES           : None
+  37           *      
+  38           ***********************************************************************************/
+  39          void zPrintf(UINT8 Port, char *fmt, ...)
+  40          {
+  41   1              va_list arg_ptr;
+  42   1              char            LocalText[64];
+  43   1              UINT8   cnt;
+  44   1              
+  45   1              ZSYS_WDT_SET(10000);
+  46   1      
+  47   1              for(cnt=0 ; cnt<64 ; cnt++) 
+  48   1              {
+  49   2                      LocalText[cnt] = 0x00;
+  50   2              }
+  51   1      
+  52   1              va_start(arg_ptr, fmt);
+  53   1              vsprintf(LocalText, fmt, arg_ptr);
+  54   1              va_end(arg_ptr);
+C51 COMPILER V9.00   UTIL_APP                                                              05/08/2012 16:12:19 PAGE 2   
+
+  55   1      
+  56   1              if(Port & 0x01)         // SERIAL PORT1
+  57   1              {
+  58   2                      #if (ENABLE_UART1)
+  59   2                      for(cnt=0 ; cnt<64 ; cnt++) 
+  60   2                      {
+  61   3                              if(LocalText[cnt] != 0)
+  62   3                              {
+  63   4                                      ZSYS_UART1_PUT(LocalText[cnt]);
+  64   4                                      if(LocalText[cnt] == KEYBOARD_LineFeed) 
+  65   4                                              ZSYS_UART1_PUT(KEYBOARD_CarryRet);                      
+  66   4                              }
+  67   3                              else            break;
+  68   3                      }       
+  69   2                      #endif
+  70   2              }
+  71   1              else                                    // SERIAL PORT0
+  72   1              {
+  73   2                      #if (ENABLE_UART0)
+  74   2                      for(cnt=0 ; cnt<64 ; cnt++)
+  75   2                      {
+  76   3                              if(LocalText[cnt] != 0)
+  77   3                              {                       
+  78   4                                      ZSYS_UART0_PUT(LocalText[cnt]);
+  79   4                                      if(LocalText[cnt] == KEYBOARD_LineFeed) 
+  80   4                                              ZSYS_UART0_PUT(KEYBOARD_CarryRet);
+  81   4                              }
+  82   3                              else            break;
+  83   3                      }       
+  84   2                      #endif
+  85   2              }
+  86   1      }
+  87          
+  88          
+  89          /***********************************************************************************
+  90           *
+  91           *      NAME            : zScanf()
+  92           *
+  93           *      DESCRIPTION     : Stores the keyboard input data. Input is in hexa-decimal number.
+  94           *
+  95           *      PARAMETER       : 
+  96           *              Port - UART port number. 0=UART0, 1=UART1
+  97           *              pValue - a pointer to the parameters in which data is stored
+  98           *
+  99           *      RETURN          : None
+ 100           *
+ 101           *      NOTES           : None
+ 102           *      
+ 103           ***********************************************************************************/
+ 104          void zScanf(UINT8 Port, UINT16 *pValue)
+ 105          {
+ 106   1              char            integer;
+ 107   1              UINT8   ki;
+ 108   1              UINT8   cnt;
+ 109   1      
+ 110   1              cnt = 0;
+ 111   1              *pValue = 0;
+ 112   1      
+ 113   1              while(1) 
+ 114   1              {               
+ 115   2                      ZSYS_WDT_SET(10000);
+ 116   2      
+C51 COMPILER V9.00   UTIL_APP                                                              05/08/2012 16:12:19 PAGE 3   
+
+ 117   2                      if(Port & 0x01)
+ 118   2                      {
+ 119   3                              #if (ENABLE_UART1)
+ 120   3                              if(ZSYS_UART1_GET(&ki)) 
+ 121   3                              {
+ 122   4                                      integer = toint(ki);
+ 123   4      
+ 124   4                                      if(integer != -1) 
+ 125   4                                      {
+ 126   5                                              if(cnt != 4)
+ 127   5                                              {
+ 128   6                                                      ZSYS_UART1_PUT(ki);
+ 129   6                                                      *pValue <<= 4;
+ 130   6                                                      *pValue |= integer;
+ 131   6                                                      cnt++;
+ 132   6                                              }
+ 133   5                                      }
+ 134   4                                      else 
+ 135   4                                      {
+ 136   5                                              if( (ki == KEYBOARD_BACK) && (cnt) )    // BackSpace
+ 137   5                                              {
+ 138   6                                                      ZSYS_UART1_PUT(KEYBOARD_BACK);
+ 139   6                                                      ZSYS_UART1_PUT(KEYBOARD_SPACE);
+ 140   6                                                      ZSYS_UART1_PUT(KEYBOARD_BACK);
+ 141   6                                                      *pValue = *pValue >> 4;
+ 142   6                                                      cnt--;
+ 143   6                                              }
+ 144   5                                      
+ 145   5                                              if(ki == KEYBOARD_CarryRet)
+ 146   5                                              {
+ 147   6                                                      break;
+ 148   6                                              }
+ 149   5                                      }
+ 150   4                              }       
+ 151   3                              #endif          
+ 152   3                      }
+ 153   2                      else
+ 154   2                      {
+ 155   3                              #if (ENABLE_UART0)
+ 156   3                              if(ZSYS_UART0_GET(&ki)) 
+ 157   3                              {
+ 158   4                                      integer = toint(ki);
+ 159   4      
+ 160   4                                      if(integer != -1) 
+ 161   4                                      {
+ 162   5                                              if(cnt != 4)
+ 163   5                                              {
+ 164   6                                                      ZSYS_UART0_PUT(ki);
+ 165   6                                                      *pValue <<= 4;                          
+ 166   6                                                      *pValue |= integer;
+ 167   6                                                      cnt++;
+ 168   6                                              }
+ 169   5                                      }
+ 170   4                                      else 
+ 171   4                                      {                               
+ 172   5                                              if( (ki == KEYBOARD_BACK) && (cnt) )    // BackSpace
+ 173   5                                              {
+ 174   6                                                      ZSYS_UART0_PUT(KEYBOARD_BACK);
+ 175   6                                                      ZSYS_UART0_PUT(KEYBOARD_SPACE);
+ 176   6                                                      ZSYS_UART0_PUT(KEYBOARD_BACK);
+ 177   6                                                      *pValue = *pValue >> 4;
+ 178   6                                                      cnt--;
+C51 COMPILER V9.00   UTIL_APP                                                              05/08/2012 16:12:19 PAGE 4   
+
+ 179   6                                              }
+ 180   5      
+ 181   5                                              if(ki == KEYBOARD_CarryRet)     // Enter
+ 182   5                                              {
+ 183   6                                                      break;
+ 184   6                                              }                               
+ 185   5                                      }
+ 186   4                              }                       
+ 187   3                              #endif
+ 188   3                              
+ 189   3                      }
+ 190   2              
+ 191   2              }
+ 192   1      
+ 193   1      }
+ 194          
+ 195          //- Port        : 1=UART1, 0=UART0
+ 196          
+ 197          //-     RETURN
+ 198          //      1       : Valid Return
+ 199          //      0       : Invalid Return
+ 200          
+ 201          
+ 202          /***********************************************************************************
+ 203           *
+ 204           *      NAME            : zScanf_Decimal()
+ 205           *
+ 206           *      DESCRIPTION     : Stores the keyboard input data. Input is in decimal number.
+ 207           *
+ 208           *      PARAMETER       : 
+ 209           *              Port - UART port number. 0=UART0, 1=UART1
+ 210           *              pValue - a pointer to the parameters in which data is stored
+ 211           *
+ 212           *      RETURN          : None
+ 213           *
+ 214           *      NOTES           : None
+ 215           *      
+ 216           ***********************************************************************************/
+ 217          /*UINT8 zScanf_Decimal(UINT8 Port, UINT16 *pValue)
+ 218          {
+ 219                  char            integer;
+ 220                  UINT8   ki;
+ 221                  UINT8   cnt;
+ 222                  UINT8   Digit[5];
+ 223                  UINT32  Tmp32;
+ 224                  
+ 225                  cnt = 0;
+ 226                  *pValue = 0;
+ 227                  Digit[0] = 0;
+ 228                  Digit[1] = 0;
+ 229                  Digit[2] = 0;
+ 230                  Digit[3] = 0;
+ 231                  Digit[4] = 0;   
+ 232          
+ 233                  while(1) 
+ 234                  {               
+ 235                          ZSYS_WDT_SET(10000);
+ 236          
+ 237                          if(Port & 0x01)
+ 238                          {
+ 239                                  #if (ENABLE_UART1)
+ 240                                  if(ZSYS_UART1_GET(&ki)) 
+C51 COMPILER V9.00   UTIL_APP                                                              05/08/2012 16:12:19 PAGE 5   
+
+ 241                                  {
+ 242                                          if( (ki >= '0') && (ki <= '9') )
+ 243                                          {
+ 244                                                  integer = ki - '0';
+ 245          
+ 246                                                  if(integer < 10)
+ 247                                                  {
+ 248                                                          if(cnt != 5)
+ 249                                                          {
+ 250                                                                  ZSYS_UART1_PUT(ki);                                             
+ 251                                                                  Digit[4] = Digit[3];
+ 252                                                                  Digit[3] = Digit[2];
+ 253                                                                  Digit[2] = Digit[1];
+ 254                                                                  Digit[1] = Digit[0];
+ 255                                                                  Digit[0] = integer;
+ 256                                                                  cnt++;
+ 257                                                          }
+ 258                                                  }                               
+ 259                                          }
+ 260                                          else
+ 261                                          {
+ 262                                                  if( (ki == KEYBOARD_BACK) && (cnt) )    // BackSpace
+ 263                                                  {                                       
+ 264                                                          ZSYS_UART1_PUT(KEYBOARD_BACK);
+ 265                                                          ZSYS_UART1_PUT(KEYBOARD_SPACE);
+ 266                                                          ZSYS_UART1_PUT(KEYBOARD_BACK);
+ 267          
+ 268                                                          Digit[0] = Digit[1];
+ 269                                                          Digit[1] = Digit[2];
+ 270                                                          Digit[2] = Digit[3];
+ 271                                                          Digit[3] = Digit[4];
+ 272                                                          Digit[4] = 0;
+ 273                                                          cnt--;
+ 274                                                  }
+ 275                                          
+ 276                                                  if(ki == KEYBOARD_CarryRet)     
+ 277                                                  {
+ 278                                                          Tmp32 = Digit[4];       Tmp32 *= 10000;
+ 279                                                          Tmp32 += (Digit[3] * 1000);
+ 280                                                          Tmp32 += (Digit[2] * 100);
+ 281                                                          Tmp32 += (Digit[1] * 10);
+ 282                                                          Tmp32 += (Digit[0] * 1);
+ 283                                                          if(Tmp32 & 0xFFFF0000)
+ 284                                                          {
+ 285                                                                  return  0;
+ 286                                                          }
+ 287                                                          else    
+ 288                                                          {
+ 289                                                                  *pValue = Tmp32;
+ 290                                                                  return  1;
+ 291                                                          }
+ 292                                                  }                               
+ 293                                          }                       
+ 294                                  }       
+ 295                                  #endif
+ 296                          }
+ 297                          else
+ 298                          {
+ 299                                  #if (ENABLE_UART0)
+ 300                                  if(ZSYS_UART0_GET(&ki)) 
+ 301                                  {
+ 302                                          if( (ki >= '0') && (ki <= '9') )
+C51 COMPILER V9.00   UTIL_APP                                                              05/08/2012 16:12:19 PAGE 6   
+
+ 303                                          {
+ 304                                                  integer = ki - '0';
+ 305          
+ 306                                                  if(integer < 10)
+ 307                                                  {
+ 308                                                          if(cnt != 5)
+ 309                                                          {
+ 310                                                                  ZSYS_UART0_PUT(ki);                                             
+ 311                                                                  Digit[4] = Digit[3];
+ 312                                                                  Digit[3] = Digit[2];
+ 313                                                                  Digit[2] = Digit[1];
+ 314                                                                  Digit[1] = Digit[0];
+ 315                                                                  Digit[0] = integer;
+ 316                                                                  cnt++;
+ 317                                                          }
+ 318                                                  }                               
+ 319                                          }
+ 320                                          else
+ 321                                          {
+ 322                                                  if( (ki == KEYBOARD_BACK) && (cnt) )    // BackSpace
+ 323                                                  {                                       
+ 324                                                          ZSYS_UART0_PUT(KEYBOARD_BACK);
+ 325                                                          ZSYS_UART0_PUT(KEYBOARD_SPACE);
+ 326                                                          ZSYS_UART0_PUT(KEYBOARD_BACK);
+ 327          
+ 328                                                          Digit[0] = Digit[1];
+ 329                                                          Digit[1] = Digit[2];
+ 330                                                          Digit[2] = Digit[3];
+ 331                                                          Digit[3] = Digit[4];
+ 332                                                          Digit[4] = 0;
+ 333                                                          cnt--;
+ 334                                                  }
+ 335                                          
+ 336                                                  if(ki == KEYBOARD_CarryRet)     
+ 337                                                  {
+ 338                                                          Tmp32 = Digit[4];       Tmp32 *= 10000;
+ 339                                                          Tmp32 += (Digit[3] * 1000);
+ 340                                                          Tmp32 += (Digit[2] * 100);
+ 341                                                          Tmp32 += (Digit[1] * 10);
+ 342                                                          Tmp32 += (Digit[0] * 1);
+ 343                                                          if(Tmp32 & 0xFFFF0000)
+ 344                                                          {
+ 345                                                                  return  0;
+ 346                                                          }
+ 347                                                          else    
+ 348                                                          {
+ 349                                                                  *pValue = Tmp32;
+ 350                                                                  return  1;
+ 351                                                          }
+ 352                                                  }                               
+ 353                                          }                       
+ 354                                  }
+ 355                                  #endif
+ 356                          }       
+ 357                  }
+ 358          }       */
+ 359          
+ 360          /***********************************************************************************
+ 361           *
+ 362           *      NAME            : Display_Buffer()
+ 363           *
+ 364           *      DESCRIPTION     : displays data memory which is pointed by "pBuf"
+C51 COMPILER V9.00   UTIL_APP                                                              05/08/2012 16:12:19 PAGE 7   
+
+ 365           *
+ 366           *      PARAMETER       : 
+ 367           *              pBuf - a pointer to data memory to be displayed
+ 368           *              Len - length of data memory
+ 369           *              Linefeed - linefeed length
+ 370           *
+ 371           *      RETURN          : None
+ 372           *
+ 373           *      NOTES           : None
+ 374           *      
+ 375           ***********************************************************************************/
+ 376          void Display_Buffer(UINT8 *pBuf, UINT8 Len, UINT8 Linefeed)
+ 377          {
+ 378   1              UINT8   ib;
+ 379   1      
+ 380   1              for(ib=0 ; ib<Len ; ib++)
+ 381   1              {       
+ 382   2                      if(Linefeed)
+ 383   2                      {
+ 384   3                              if( (ib % Linefeed) == 0)               zPrintf(1, "\n");
+ 385   3                      }
+ 386   2                      zPrintf(1, " %02x",(short)pBuf[ib]);
+ 387   2              }
+ 388   1      }
+ 389          
+ 390          /***********************************************************************************
+ 391           *
+ 392           *      NAME            : Display_NT()
+ 393           *
+ 394           *      DESCRIPTION     : displays entries of the neighbor table
+ 395           *
+ 396           *      PARAMETER       : DispOpt - option for displaying
+ 397           *                                      - 0x00  : Enabled Entry(All Fields)
+ 398           *                                      - 0x01  : Enabled Entry(Important Fields Only)
+ 399           *                                      - 0xFF  : All Entry(All Fields)
+ 400           *
+ 401           *      RETURN          : None
+ 402           *
+ 403           *      NOTES           : None
+ 404           *      
+ 405           ***********************************************************************************/
+ 406          void Display_NT(UINT8 DispOpt)
+ 407          {
+ 408   1              UINT8   N;
+ 409   1      
+ 410   1              zPrintf(1, "\n <NT>");
+ 411   1              for(N=0 ; N<NIB.SIZE_NT ; N++)
+ 412   1              {
+ 413   2                      if(     (DispOpt == 0xFF)
+ 414   2                      ||      ( (DispOpt != 0xFF) && (NIB.pNT[N].EnaNT) ) )
+ 415   2                      {
+ 416   3                              zPrintf(1, "\n Idx=%02x",(short)N);
+ 417   3                              zPrintf(1, " :Ena=%02x",(short)NIB.pNT[N].EnaNT);
+ 418   3                              zPrintf(1, " :Nwk=%04x",(short)NIB.pNT[N].NwkAddr);                     
+ 419   3                              zPrintf(1, " :IEEE[7:0]=%02x..%02x%02x",(short)NIB.pNT[N].IEEEAddr[7],(short)NIB.pNT[N].IEEEAddr[1],(sh
+             -ort)NIB.pNT[N].IEEEAddr[0]);
+ 420   3                              zPrintf(1, " :Type=%02x",(short)NIB.pNT[N].DevType);
+ 421   3                              zPrintf(1, " :Rela=%02x",(short)NIB.pNT[N].Relation);
+ 422   3                              zPrintf(1, " :RxOn=%02x",(short)NIB.pNT[N].RxOnWhenIdle);
+ 423   3      
+ 424   3                              if(DispOpt == 0x00)
+ 425   3                              {
+C51 COMPILER V9.00   UTIL_APP                                                              05/08/2012 16:12:19 PAGE 8   
+
+ 426   4                                      zPrintf(1, " :OutCost=%02x",(short)NIB.pNT[N].OutCost);
+ 427   4                                      zPrintf(1, " :LQI=%02x",(short)NIB.pNT[N].NtLQI);
+ 428   4                                      zPrintf(1, " :Fail=%02x",(short)NIB.pNT[N].TxFailure);
+ 429   4                                      zPrintf(1, " :IEEE[7:0]=");
+ 430   4                                      zPrintf(1, "%02x%02x",(short)NIB.pNT[N].IEEEAddr[7],(short)NIB.pNT[N].IEEEAddr[6]);
+ 431   4                                      zPrintf(1, "_%02x%02x",(short)NIB.pNT[N].IEEEAddr[5],(short)NIB.pNT[N].IEEEAddr[4]);
+ 432   4                                      zPrintf(1, "_%02x%02x",(short)NIB.pNT[N].IEEEAddr[3],(short)NIB.pNT[N].IEEEAddr[2]);
+ 433   4                                      zPrintf(1, "_%02x%02x",(short)NIB.pNT[N].IEEEAddr[1],(short)NIB.pNT[N].IEEEAddr[0]);
+ 434   4                              }
+ 435   3                      }       
+ 436   2              }
+ 437   1      }
+ 438          
+ 439          /***********************************************************************************
+ 440           *
+ 441           *      NAME            : Display_RT()
+ 442           *
+ 443           *      DESCRIPTION     : displays entries of the routing table
+ 444           *
+ 445           *      PARAMETER       : DispOpt - option for displaying
+ 446           *                                      - 0x00  : Enabled Entry
+ 447           *                                      - 0xFF  : All Entry
+ 448           *
+ 449           *      RETURN          : None
+ 450           *
+ 451           *      NOTES           : None
+ 452           *      
+ 453           ***********************************************************************************/
+ 454          void Display_RT(UINT8 DispOpt)
+ 455          {
+ 456   1              UINT8   N;
+ 457   1      
+ 458   1              zPrintf(1, "\n <RT>");
+ 459   1              for(N=0 ; N<NIB.SIZE_RT ; N++)
+ 460   1              {       
+ 461   2                      if(     (DispOpt == 0xFF)
+ 462   2                      ||      ( (DispOpt == 0) && (NIB.pRT[N].EnaRT) ) )
+ 463   2                      {               
+ 464   3                              zPrintf(1, "\n Idx=%02x",(short)N);
+ 465   3                              zPrintf(1, " :Ena=%x",(short)NIB.pRT[N].EnaRT);
+ 466   3                              zPrintf(1, " :Sta=%02x",(short)NIB.pRT[N].Sta); 
+ 467   3                              zPrintf(1, " :Dst=%04x",(short)NIB.pRT[N].DstAddr);
+ 468   3                              zPrintf(1, " :Next=%04x",(short)NIB.pRT[N].NextHop);
+ 469   3                              zPrintf(1, " :Opt=%02x",(short)NIB.pRT[N].RtOption);
+ 470   3                      }       
+ 471   2              }
+ 472   1      }
+ 473          
+ 474          /***********************************************************************************
+ 475           *
+ 476           *      NAME            : Display_NAM()
+ 477           *
+ 478           *      DESCRIPTION     : displays entries of the network address map table
+ 479           *
+ 480           *      PARAMETER       : DispOpt - option for displaying
+ 481           *                                      - 0x00  : Enabled Entry
+ 482           *                                      - 0xFF  : All Entry
+ 483           *
+ 484           *      RETURN          : None
+ 485           *
+ 486           *      NOTES           : None
+ 487           *      
+C51 COMPILER V9.00   UTIL_APP                                                              05/08/2012 16:12:19 PAGE 9   
+
+ 488           ***********************************************************************************/
+ 489          void Display_NAM(UINT8 DispOpt)
+ 490          {
+ 491   1              UINT8   N;
+ 492   1      
+ 493   1              zPrintf(1, "\n <NAM>");
+ 494   1              for(N=0 ; N<NIB.SIZE_NAM ; N++)
+ 495   1              {
+ 496   2                      if(     (DispOpt == 0xFF)
+ 497   2                      ||      ( (DispOpt == 0) && (NIB.pNAM[N].EnaNAM) ) )
+ 498   2                      {
+ 499   3                              zPrintf(1, "\n Idx=%02x",(short)N);
+ 500   3                              zPrintf(1, " :Ena=%x",(short)NIB.pNAM[N].EnaNAM);
+ 501   3                              zPrintf(1, " :Nwk=%04x",NIB.pNAM[N].NwkAddr);
+ 502   3                              zPrintf(1, " :IEEE[7:0]=");
+ 503   3                              zPrintf(1, "%02x%02x",(short)NIB.pNAM[N].IEEEAddr[7],(short)NIB.pNAM[N].IEEEAddr[6]);
+ 504   3                              zPrintf(1, "_%02x%02x",(short)NIB.pNAM[N].IEEEAddr[5],(short)NIB.pNAM[N].IEEEAddr[4]);
+ 505   3                              zPrintf(1, "_%02x%02x",(short)NIB.pNAM[N].IEEEAddr[3],(short)NIB.pNAM[N].IEEEAddr[2]);
+ 506   3                              zPrintf(1, "_%02x%02x",(short)NIB.pNAM[N].IEEEAddr[1],(short)NIB.pNAM[N].IEEEAddr[0]);
+ 507   3                      }       
+ 508   2              }
+ 509   1      }
+ 510          
+ 511          /***********************************************************************************
+ 512           *
+ 513           *      NAME            : Display_RRECT()
+ 514           *
+ 515           *      DESCRIPTION     : displays entries of the route record table
+ 516           *
+ 517           *      PARAMETER       : DispOpt - option for displaying
+ 518           *                                      - 0x00  : Enabled Entry
+ 519           *                                      - 0xFF  : All Entry
+ 520           *
+ 521           *      RETURN          : None
+ 522           *
+ 523           *      NOTES           : None
+ 524           *      
+ 525           ***********************************************************************************/
+ 526          /*void Display_RRECT(UINT8 DispOpt)
+ 527          {
+ 528                  UINT8   N;
+ 529                  UINT8   ib;
+ 530          
+ 531                  for(N=0 ; N<NIB.SIZE_RRECT ; N++)
+ 532                  {
+ 533                          if(     (DispOpt == 0xFF)
+ 534                          ||      ( (DispOpt == 0) && (NIB.pRRECT[N].EnaRRECT) ) )
+ 535                          {
+ 536                                  zPrintf(1, "\n Idx=%02x",(short)N);
+ 537                                  zPrintf(1, " :Ena=%x",(short)NIB.pRRECT[N].EnaRRECT);
+ 538                                  zPrintf(1, " :RelayCnt=%04x",NIB.pRRECT[N].RelayCount);
+ 539                                  zPrintf(1, " :NwkAddr=%04x",NIB.pRRECT[N].NwkAddr);                                             
+ 540                                  for(ib=0 ; ib<NIB.pRRECT[N].RelayCount ; ib++)
+ 541                                  {
+ 542                                          zPrintf(1, "<-%04x",NIB.pRRECT[N].Path[ib]);
+ 543                                  }                       
+ 544                                  zPrintf(1, "(Path)");
+ 545                          }
+ 546                  }       
+ 547          } */
+ 548          
+ 549          /***********************************************************************************
+C51 COMPILER V9.00   UTIL_APP                                                              05/08/2012 16:12:19 PAGE 10  
+
+ 550           *
+ 551           *      NAME            : Display_GT()
+ 552           *
+ 553           *      DESCRIPTION     : displays entries of the group table
+ 554           *
+ 555           *      PARAMETER       : DispOpt - option for displaying
+ 556           *                                      - 0x00  : Enabled Entry
+ 557           *                                      - 0xFF  : All Entry
+ 558           *
+ 559           *      RETURN          : None
+ 560           *
+ 561           *      NOTES           : None
+ 562           *      
+ 563           ***********************************************************************************/
+ 564          void Display_GT(UINT8 DispOpt)
+ 565          {
+ 566   1              UINT8   N;
+ 567   1      
+ 568   1              for(N=0 ; N<AIB.SIZE_GT ; N++)
+ 569   1              {       
+ 570   2                      if(     (DispOpt == 0xFF)
+ 571   2                      ||      ( (DispOpt == 0) && (AIB.papsGroupTable[N].EnaGT) ) )
+ 572   2                      {
+ 573   3                              zPrintf(1, "\n Idx=%02x",(short)N);
+ 574   3                              zPrintf(1, " :Ena=%x",(short)AIB.papsGroupTable[N].EnaGT);                      
+ 575   3                              zPrintf(1, " :Group=%04x",AIB.papsGroupTable[N].GroupAddr);                     
+ 576   3                              zPrintf(1, " :EP=%02x",(short)AIB.papsGroupTable[N].GroupEP);
+ 577   3                      }       
+ 578   2              }
+ 579   1      }
+ 580          
+ 581          /***********************************************************************************
+ 582           *
+ 583           *      NAME            : Display_MyInfo()
+ 584           *
+ 585           *      DESCRIPTION     : displays the type, RF channel, network address, PAN ID, EPID and IEEE address
+ 586           *
+ 587           *      PARAMETER       : None
+ 588           *
+ 589           *      RETURN          : None
+ 590           *
+ 591           *      NOTES           : None
+ 592           *      
+ 593           ***********************************************************************************/
+ 594          void Display_MyInfo()
+ 595          {
+ 596   1              zPrintf(1, "\n === Xiexie MIEO!");
+ 597   1              zPrintf(1, "\n - DEVTYPE=%c, Chan=%02d",NIB.DEVTYPE,(short)PPIB.phyCurrentChannel);
+ 598   1              zPrintf(1, "\n - NwkShort=%04x, MacShort=%04x",NIB.nwkNetworkAddr,MPIB.macShortAddr);
+ 599   1              zPrintf(1, "\n - NwkPan=%04x, MacPan=%04x",NIB.nwkPanID,MPIB.macPANId);                 
+ 600   1              zPrintf(1, "\n - EPID(0~7) : ");
+ 601   1              Display_Buffer(NIB.nwkEPID, 8, 0);                      
+ 602   1              zPrintf(1, "\n - IEEE(0~7) : ");
+ 603   1              Display_Buffer(MPIB.IEEE_ExtendAddr, 8, 0);
+ 604   1      }
+ 605          
+ 606          
+ 607          
+ 608          ///////////////////////////////////////////////////////////////////////////////
+ 609          ///////////////////////////////////////////////////////////////////////////////
+ 610          ///////////////////////////////////////////////////////////////////////////////
+ 611          ///////////////////////////////////////////////////////////////////////////////
+C51 COMPILER V9.00   UTIL_APP                                                              05/08/2012 16:12:19 PAGE 11  
+
+ 612          ///////////////////////////////////////////////////////////////////////////////
+ 613          
+ 614          /***********************************************************************************
+ 615           *
+ 616           *      NAME            : ZSYS_HIB_COPY()
+ 617           *
+ 618           *      DESCRIPTION     : reads HIB and copies it to the data memory pointed by "pBuf"
+ 619           *
+ 620           *      PARAMETER       : pBuf - a pointer to the data memory to which HIB is copied
+ 621           *
+ 622           *      RETURN          : 1=Success. HIB is valid. 0=Failed. HIB is invalid.
+ 623           *
+ 624           *      NOTES           : None
+ 625           *      
+ 626           ***********************************************************************************/
+ 627          UINT8 ZSYS_HIB_COPY(UINT8 *pBuf)
+ 628          {
+ 629   1              UINT8   i;
+ 630   1              UINT8   code *pCodeBuf;
+ 631   1              UINT8   SUM;
+ 632   1      
+ 633   1              pCodeBuf = HIB_ADDRESS;
+ 634   1              SUM = 0;
+ 635   1              for(i=0 ; i<HIB_LENGTH ; i++)
+ 636   1              {
+ 637   2                      SUM += pCodeBuf[i];
+ 638   2                      pBuf[i] = pCodeBuf[i];
+ 639   2              }
+ 640   1      
+ 641   1              if(SUM == 0)    return  1;
+ 642   1              else                    return  0;      
+ 643   1      }
+ 644          
+ 645          
+ 646          /***********************************************************************************
+ 647           *
+ 648           *      NAME            : ZSYS_LQI_TO_dBm()
+ 649           *
+ 650           *      DESCRIPTION     : converts a LQI value to a dBm value
+ 651           *
+ 652           *      PARAMETER       : LQI - LQI value to be converted
+ 653           *
+ 654           *      RETURN          : converted dBm value
+ 655           *
+ 656           *      NOTES           : LQI=255 --> 0 dBm. LQI=0 --> -100 dBm
+ 657           *      
+ 658           ***********************************************************************************/
+ 659          /*INT8 ZSYS_LQI_TO_dBm(UINT8 LQI)
+ 660          {
+ 661                  UINT16  Tmp16;
+ 662                  INT8            Tmp8;
+ 663          
+ 664                  Tmp16 = 100 * (255 - LQI);
+ 665                  Tmp16 = Tmp16 / 255;
+ 666          
+ 667                  Tmp8 = 0 - Tmp16;
+ 668                  
+ 669                  return  Tmp8;
+ 670          }*/
+ 671          
+ 672          /***********************************************************************************
+ 673           *
+C51 COMPILER V9.00   UTIL_APP                                                              05/08/2012 16:12:19 PAGE 12  
+
+ 674           *      NAME            : ZSYS_dBm_TO_LQI()
+ 675           *
+ 676           *      DESCRIPTION     : converts a dBm value to a LQI value
+ 677           *
+ 678           *      PARAMETER       : dBmValue - dBm value to be converted
+ 679           *
+ 680           *      RETURN          : converted LQI value
+ 681           *
+ 682           *      NOTES           : LQI=255 --> 0 dBm. LQI=0 --> -100 dBm
+ 683           *      
+ 684           ***********************************************************************************/
+ 685          /*UINT8 ZSYS_dBm_TO_LQI(INT8 dBmValue)
+ 686          {
+ 687                  UINT16  Tmp16;
+ 688                  UINT8   ConvertedLQI;
+ 689          
+ 690                  // RSSI : LQI type, 0~255, 255=high power
+ 691                  if(dBmValue > 0)
+ 692                  {
+ 693                          ConvertedLQI = 255;
+ 694                  }
+ 695                  else if(dBmValue > -100)
+ 696                  {
+ 697                          Tmp16 = 100 + dBmValue;
+ 698                          Tmp16 *= 255;
+ 699                          Tmp16 /= 100;
+ 700                          ConvertedLQI = Tmp16;
+ 701                  }
+ 702                  else
+ 703                  {
+ 704                          ConvertedLQI = 0;
+ 705                  }       
+ 706             //return 0xFF;
+ 707                  return  ConvertedLQI;
+ 708          } */
+ 709          
+ 710          
+ 711          ///////////////////////////////////////////////////////////////////////////////
+ 712          ///////////////////////////////////////////////////////////////////////////////
+ 713          ///////////////////////////////////////////////////////////////////////////////
+ 714          ///////////////////////////////////////////////////////////////////////////////
+ 715          ///////////////////////////////////////////////////////////////////////////////
+ 716          
+ 717          
+ 718          /***********************************************************************************
+ 719           *
+ 720           *      NAME            : RemoveWarning_UTIL_APP()
+ 721           *
+ 722           *      DESCRIPTION     : Pretends to call functions in this file to remove warnings of Keil Compiler.
+ 723           *              In fact, the functions are not called because "Call" is 0.
+ 724           *
+ 725           *      PARAMETER       : None
+ 726           *
+ 727           *      RETURN          : None
+ 728           *
+ 729           *      NOTES           : A warning that indicates UNCALLED_SEGMENT about RemoveWarning_UTIL_APP()
+ 730           *              is generated when compiled. This warning is ignored.
+ 731           *      
+ 732           ***********************************************************************************/
+ 733          /*void RemoveWarning_UTIL_APP()
+ 734          {
+ 735                  UINT8   Call;
+C51 COMPILER V9.00   UTIL_APP                                                              05/08/2012 16:12:19 PAGE 13  
+
+ 736          
+ 737                  Call = 0;
+ 738          
+ 739                  if(Call)
+ 740                  {
+ 741                          zPrintf(0,0);
+ 742                          zScanf(0,0);
+ 743                          zScanf_Decimal(0,0);
+ 744                          Display_Buffer(0,0,0);  
+ 745                          Display_NT(0);
+ 746                          Display_RT(0);
+ 747                          Display_NAM(0); 
+ 748                          Display_RRECT(0);
+ 749                          Display_GT(0);
+ 750                          Display_MyInfo();
+ 751          
+ 752                          ZSYS_HIB_COPY(0);
+ 753                          ZSYS_LQI_TO_dBm(0);
+ 754                          ZSYS_dBm_TO_LQI(0);
+ 755                  }
+ 756          } */
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2046    ----
+   CONSTANT SIZE    =    414    ----
+   XDATA SIZE       =   ----     137
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

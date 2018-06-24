@@ -1,0 +1,5 @@
+"STARTUP.obj",
+"SJA1000.obj",
+"main.obj" 
+TO "sja1000" 
+RAMSIZE(256) 

@@ -1,0 +1,1207 @@
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE PHY
+OBJECT MODULE PLACED IN .\HEX\PHY.obj
+COMPILER INVOKED BY: C:\Keil\C51\bin\C51.EXE C_HAL\PHY.c LARGE OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\LST\PH
+                    -Y.lst) OBJECT(.\HEX\PHY.obj)
+
+line level    source
+
+   1          /*******************************************************************************
+   2                  - Chip          : MG2450/2455
+   3                  - Vendor                : RadioPulse Inc, 2007.
+   4                  - Date          : 2010-08-13
+   5                  - Version               : VER 1.80
+   6          
+   7                  [2010-08-13] VER 1.80
+   8                  - Modified to support the new version chip whose CHIP ID is 0x96 in ZHAL_3V_LOGIC_INIT().
+   9          
+  10                  [2009-07-15] VER 1.76
+  11                  - More stable lock detector in ZHAL_MODEM_INIT_CHIP92().
+  12                          + xPLLLD 0x0A --> 0x1C
+  13                  - When a 500K/1Mbps-mode device receives a 250Kbps packet, 
+  14                     it should transmits a ACK packet(250Kbps). Then, 290us is too 
+  15                     short. So, the ACK transmission is failed.
+  16                          + @16MHz Mode   : 300(290us) --> 400(400us)
+  17                          + @8MHz Mode    : 130(290us) --> 180(400us) 
+  18                  - TxPower Registers for low current consumption @-40dBm or -50dBm in ZHAL_TXPOWER_SET_CHIP92().
+  19                          + @-40dBm, 
+  20                                  xTXPA=0x9F --> 11
+  21                                  xTXDA=0xFF --> E1
+  22                                  xTXMIX=0x1C --> 6D
+  23                          + @-50dBm, 
+  24                                  xTXPA=0x18 --> 11
+  25                                  xTXDA=0xE7 --> E0
+  26                                  xTXMIX=0x1C --> 6D
+  27          
+  28                  [2009-02-23]    VER 1.75
+  29                  - <#if ENABLE_PHY_UNCALLED ~ #endif> is added   
+  30                  - ZHAL_MODEM_INIT_CHIP92() is updated.
+  31                  - ZHAL_MODEM_INIT() is updated.
+  32                  - ZHAL_SEND_TXFIFO() is updated.
+  33                  - ZHAL_SEND_ACK() is updated.
+  34                  - ZHAL_DATARATE_SET_ISR() is added.
+  35                  - Mode_19MHz has default value as 0.    
+  36                  - ZHAL_RF_INT_CLEAR() is deleted.
+  37                  - xxxx_CHIP91() function is deleted.
+  38                  - ZHAL_RECEIVER_ON/OFF() is deleted.
+  39          
+  40                  [2008-07-28] VER 1.71
+  41                  - ZHAL_SEND_TXFIFO() : When returning 0xE1, xMTFCRP is also cleared to 0.
+  42                  - ZHAL_SEND_TXFIFO() : When transmitting, TxOperating is set to 1
+  43                  - ZHAL_SEND_ACK() : When TxOperating is 1, Ack is not transmitted
+  44                  - ZHAL_MODEM_INIT_CHIP92() : 17 registers are updated
+  45                          + xCORCNF1
+  46                          + xAGCCNF7/8/9/10/11/12/15/16/17/18/19/22
+  47                          + xPLLLF1/2/3
+  48                          + xTXLPF        
+  49                  - ZHAL_COORDINATOR_SET() : The operated bit was wrong. So, It is modified.
+  50                  
+  51                  [2008-04-01] VER 1.70
+  52                  - ZHAL_SEND_TXFIFO() : Check Modem Status before transmitting
+  53                  - ZHAL_SEND_ACK() : Check Modem Status before transmitting
+  54                  - ZHAL_DATARATE_SET() : xVRXLPF is changed from 0xE0 to 0xED
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 2   
+
+  55                  - ZHAL_MODEM_INIT_CHIP92() : xVRXLPF is changed from 0xE0 to 0xED
+  56          
+  57                  [2008-03-06] VER 1.63
+  58                  - Brown-Out-Dector(BOD) is enabled
+  59                  - 1M parameter(xRXRSSI, xVRXLPF) is changed in ZHAL_DATARATE_SET()
+  60                  - RxStart Interrupt is disabled(xINTCON = 0xFA)
+  61          
+  62                  [2008-01-10] VER 1.62
+  63                  - Register Version V1.5 is adopted
+  64                          xAGCCNF19, xRXBBAMP, xVRXLPF, xAGCCNF22 are updated
+  65                          xINTCON : RxStart Interrupt is enabled
+  66          
+  67                  [2007-12-20] VER 1.61
+  68                  - AckWait for() counter is changed for stability in ZHAL_SEND_TXFIFO()
+  69                          1000 ==> 1200   : @16MHz, MAX 2.0ms
+  70                          500  ==> 600            : @8MHz, MAX 2.0ms
+  71                  
+  72                  [2007-12-11] VER 1.60
+  73                  - for() counter is changed in ZHAL_SEND_TXFIFO()        
+  74                          5000 ==> 2500
+  75                          4999 ==> 2499
+  76                          1000 ==> 500
+  77                          (Because, Core Clock is changed from 16MHz to 8MHz)
+  78                  - for() counter is changed in ZHAL_SEND_ACK()
+  79                          1000 ==> 500
+  80                          999 ==> 499
+  81                          (Because, Core Clock is changed from 16MHz to 8MHz)
+  82                  - xTST0 is changed when Modulation with IFS mode in ZHAL_TeST_TXOUT()
+  83                          0x7F ==> 0x77
+  84                  
+  85                  [2007-11-07] VER 1.50
+  86                  - Initial Version       
+  87          *******************************************************************************/
+  88          
+  89          #include "INCLUDE_TOP.h"
+  90          
+  91          //
+  92          //      xPDM
+  93          //      bit[7]  : Analog Regulator. 1=Voltage is changed (1.5V <-> 1.8V)
+  94          //      bit[6]  : Digital Regulator. 1=Voltage is changed (1.5V <-> 1.8V)
+  95          //
+  96          //      When MSV pin of MG245X is HIGH(It means 1.8V input)
+  97          //      ===> if bit[7]=1, Regulator Output Voltage is 1.5V.(1.5V is used in core block).
+  98          //      When MSV pin of MG245X is LOW(It means 1.5V input)
+  99          //      ===> if bit[7]=1, Regulator Output Voltage is 1.8V.(1.8V is used in core block).
+ 100          //
+ 101          void ZHAL_REGULATOR_SET(UINT8 ChangeAnalog, UINT8 ChangeDigital)
+ 102          {
+ 103   1              if(ChangeAnalog)        xPDM |= 0x80;           // bit[7]=1
+ 104   1              else                                    xPDM &= ~0x80;          // bit[7]=0
+ 105   1      
+ 106   1              if(ChangeDigital)               xPDM |= 0x40;           // bit[6]=1
+ 107   1              else                                    xPDM &= ~0x40;          // bit[6]=0
+ 108   1      }
+ 109          
+ 110          
+ 111          #if (ENABLE_PHY_UNCALLED)
+              void ZHAL_CLOCK_BLOCK_SET(UINT8 EnaCodec, UINT8 EnaAES)
+              {
+                      //--------------------------------------------------------------------
+                      //      BIT[7]  BIT[6]  BIT[5]  BIT[4]  BIT[3]  BIT[2]  BIT[1]  BIT[0]
+                      //--------------------------------------------------------------------
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 3   
+
+                      //      xCLKON0 ( 0xff)
+                      //      CCLK    CCCLK   CPCLK   AESCLK  MTCLK   MRCLK   REGCLK  ECHOCLK
+                      //                                      (PERI)                                                                  (CODEC)
+                      //--------------------------------------------------------------------
+                      
+                      if(EnaCodec)
+                                      xCLKON0 |=  (1<<0);
+                      else            xCLKON0 &= ~(1<<0);
+                      
+                      if(EnaAES)
+                                      xCLKON0 |= (1<<4);
+                      else            xCLKON0 &= ~(1<<4);
+              }
+              #endif
+ 131          
+ 132          
+ 133          //-- EnaCLKPLL
+ 134          //      1       : Enable CLKPLL to use 19.2MHz XTAL CLOCK.
+ 135          //      0       : Disable CLKPLL to use default XTAL CLOCK.
+ 136          void ZHAL_CLOCK_PLL_SET(UINT8 EnaCLKPLL)
+ 137          {
+ 138   1              //-------------------------------------------------------------------------------------
+ 139   1              //      xCKPLL
+ 140   1              //-------------------------------------------------------------------------------------
+ 141   1              //      BIT[7]  BIT[6]          BIT[5]          BIT[4]          BIT[3]          BIT[2:1]                        BIT[0]
+ 142   1              //      Rsvd    CKPLL_CH        CKPLL_OK        CKPLLEN CKPLLRSTB               XTALSEL[1:0]            RCOSCDIV2
+ 143   1              //-------------------------------------------------------------------------------------
+ 144   1              
+ 145   1              UINT8   _CKPLL;
+ 146   1      
+ 147   1              _CKPLL = xCKPLL;
+ 148   1              
+ 149   1              if(EnaCLKPLL)
+ 150   1              {
+ 151   2                      _CKPLL |= ( 1 << 4);    // CKPLLEN ON
+ 152   2                      _CKPLL |= ( 1 << 3);    // Release RESET# 
+ 153   2      
+ 154   2                      xCKPLL = _CKPLL;
+ 155   2      
+ 156   2                      while(1)        // 
+ 157   2                      {
+ 158   3                              if(xCKPLL & 0x20) break;        // PLL OK CONFIRM
+ 159   3                      }
+ 160   2      
+ 161   2                      xCKPLL |= (1<<2);                       // CLOCK SWITCHING TO PLLOUT
+ 162   2              }
+ 163   1              else
+ 164   1              {
+ 165   2                      _CKPLL &= ~(1 <<2);     // CLK = XTAL   
+ 166   2                      _CKPLL &= ~(1 <<4);     // CKPLLEN OFF
+ 167   2                      _CKPLL &= ~(1 <<3);     // Initialte RESET#
+ 168   2                      
+ 169   2                      xCKPLL = _CKPLL;                // CLOCK SWITCHING TO 16MHZ
+ 170   2              }
+ 171   1      }
+ 172          
+ 173          
+ 174          //-- Ena16MHz
+ 175          //      1       : System Clock 16MHz
+ 176          //      0       : System Clock 8MHz
+ 177          /*void ZHAL_CLOCK_16MHz_SET(UINT8 Ena16MHz)
+ 178          {
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 4   
+
+ 179                  if(Ena16MHz)    xCLKDIV0 = 0x00;
+ 180                  else                            xCLKDIV0 = 0xFF;
+ 181          }*/
+ 182          
+ 183                  UINT8   Mode_19MHz = 0; // 19.2MHz CLK PLL
+ 184          void ZHAL_HW_INIT(UINT8 Ena19MHz, UINT8 VoltChange)
+ 185          {       
+ 186   1              Mode_19MHz = 0; 
+ 187   1              if(Ena19MHz)
+ 188   1              {       
+ 189   2                      ZHAL_CLOCK_PLL_SET(1);
+ 190   2                      Mode_19MHz = 1;
+ 191   2              }
+ 192   1      
+ 193   1              if(VoltChange)
+ 194   1              {
+ 195   2                      ZHAL_REGULATOR_SET(1, 1);
+ 196   2              }
+ 197   1      }
+ 198          
+ 199          void ZHAL_CHANNEL_SET_CHIP92_XTAL19(UINT8 CH)
+ 200          {
+ 201   1              UINT16          Counter;
+ 202   1              UINT8           STA;
+ 203   1              UINT16          i;
+ 204   1              UINT8           F3, F4;
+ 205   1      
+ 206   1              xRXRFPD = 0x00;
+ 207   1              xRXRFPU = 0xFF;
+ 208   1              xTXRFPD = 0x00;
+ 209   1              xTXRFPU = 0xFF;
+ 210   1      
+ 211   1              switch(CH) 
+ 212   1              {
+ 213   2                      case 11         : F3 = 0x05; F4 = 0x30;  xPLLADIV = (xPLLADIV & 0x30) | 0x01; break;
+ 214   2                      case 12         : F3 = 0x0A; F4 = 0x70;  xPLLADIV = (xPLLADIV & 0x30) | 0x01; break;
+ 215   2                      case 13         : F3 = 0x0F; F4 = 0xA0;  xPLLADIV = (xPLLADIV & 0x30) | 0x01; break;
+ 216   2                      case 14         : F3 = 0x14; F4 = 0xD0;  xPLLADIV = (xPLLADIV & 0x30) | 0x01; break;
+ 217   2                      case 15         : F3 = 0xB6; F4 = 0x10;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 218   2                      case 16         : F3 = 0xBB; F4 = 0x40;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 219   2                      case 17         : F3 = 0xC0; F4 = 0x70;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 220   2                      case 18         : F3 = 0x29; F4 = 0xB0;  xPLLADIV = (xPLLADIV & 0x30) | 0x01; break;
+ 221   2                      case 19         : F3 = 0x2E; F4 = 0xE0;  xPLLADIV = (xPLLADIV & 0x30) | 0x01; break;
+ 222   2                      case 20         : F3 = 0x34; F4 = 0x10;  xPLLADIV = (xPLLADIV & 0x30) | 0x01; break;
+ 223   2                      case 21         : F3 = 0x39; F4 = 0x50;  xPLLADIV = (xPLLADIV & 0x30) | 0x01; break;
+ 224   2                      case 22         : F3 = 0x3E; F4 = 0x80;  xPLLADIV = (xPLLADIV & 0x30) | 0x01; break;
+ 225   2                      case 23         : F3 = 0xDF; F4 = 0xB0;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 226   2                      case 24         : F3 = 0xE4; F4 = 0xF0;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 227   2                      case 25         : F3 = 0xEA; F4 = 0x20;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 228   2                      case 26         : F3 = 0x53; F4 = 0x50;  xPLLADIV = (xPLLADIV & 0x30) | 0x01; break;
+ 229   2                      default         : F3 = 0x2E; F4 = 0xE0;  xPLLADIV = (xPLLADIV & 0x30) | 0x01; break;
+ 230   2              }
+ 231   1      
+ 232   1              xPLLBDIV = 0x06;
+ 233   1              xPLLCP = 0x32;
+ 234   1              xPLLFRAC3       = F3;
+ 235   1              xPLLFRAC4       = F4;
+ 236   1      
+ 237   1              Counter = 0;
+ 238   1              while(1)
+ 239   1              {       
+ 240   2                      Counter += 100;
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 5   
+
+ 241   2                      xPLLADFC        = 0xEF;
+ 242   2                      for(i=0 ; i<Counter ; i++);
+ 243   2                      xPLLADFC        = 0xEF;
+ 244   2      
+ 245   2                      STA = 0;
+ 246   2                      for(i=0 ; i<0x1000 ; i++)
+ 247   2                      {
+ 248   3                              if(xPLLLD & 0x40)
+ 249   3                              {
+ 250   4                                      STA = 1;
+ 251   4                                      break;
+ 252   4                              }
+ 253   3                      }
+ 254   2      
+ 255   2                      if(STA) break;
+ 256   2              }
+ 257   1      
+ 258   1              xRXRFPD = 0xF7;
+ 259   1              xRXRFPU = 0xFF;
+ 260   1              xTXRFPD = 0xFF;
+ 261   1              xTXRFPU = 0xFF;
+ 262   1      }
+ 263          
+ 264          
+ 265          
+ 266          void ZHAL_CHANNEL_SET_CHIP92_XTAL16(UINT8 CH)
+ 267          {
+ 268   1              UINT16          Counter;
+ 269   1              UINT8           STA;
+ 270   1              UINT16          i;
+ 271   1              UINT8           F3, F4;
+ 272   1      
+ 273   1              xRXRFPD = 0x00;
+ 274   1              xRXRFPU = 0xFF;
+ 275   1              xTXRFPD = 0x00;
+ 276   1              xTXRFPU = 0xFF;
+ 277   1      
+ 278   1              switch(CH) 
+ 279   1              {
+ 280   2                      case 11         : F3 = 0x06; F4 = 0x40;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 281   2                      case 12         : F3 = 0x0C; F4 = 0x80;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 282   2                      case 13         : F3 = 0x12; F4 = 0xC0;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 283   2                      case 14         : F3 = 0x19; F4 = 0x00;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 284   2                      case 15         : F3 = 0xBB; F4 = 0x40;  xPLLADIV = (xPLLADIV & 0x30) | 0x03; break;
+ 285   2                      case 16         : F3 = 0xC1; F4 = 0x80;  xPLLADIV = (xPLLADIV & 0x30) | 0x03; break;
+ 286   2                      case 17         : F3 = 0xC7; F4 = 0xC0;  xPLLADIV = (xPLLADIV & 0x30) | 0x03; break;
+ 287   2                      case 18         : F3 = 0x32; F4 = 0x00;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 288   2                      case 19         : F3 = 0x38; F4 = 0x40;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 289   2                      case 20         : F3 = 0x3E; F4 = 0x80;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 290   2                      case 21         : F3 = 0x44; F4 = 0xC0;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 291   2                      case 22         : F3 = 0x4B; F4 = 0x00;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 292   2                      case 23         : F3 = 0xED; F4 = 0x40;  xPLLADIV = (xPLLADIV & 0x30) | 0x03; break;
+ 293   2                      case 24         : F3 = 0xF3; F4 = 0x80;  xPLLADIV = (xPLLADIV & 0x30) | 0x03; break;
+ 294   2                      case 25         : F3 = 0xF9; F4 = 0xC0;  xPLLADIV = (xPLLADIV & 0x30) | 0x03; break;
+ 295   2                      case 26         : F3 = 0x00; F4 = 0x00;  xPLLADIV = (xPLLADIV & 0x30) | 0x03; break;
+ 296   2                      default : F3 = 0x38; F4 = 0x40;  xPLLADIV = (xPLLADIV & 0x30) | 0x02; break;
+ 297   2              }
+ 298   1      
+ 299   1              switch (CH) 
+ 300   1              {
+ 301   2                      case 26         : xPLLCP        = 0x3B;         break;
+ 302   2                      default         : xPLLCP        = 0x32;         break;
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 6   
+
+ 303   2              }
+ 304   1              
+ 305   1              xPLLRDIV        = (xPLLRDIV & 0x01);
+ 306   1              xPLLFRAC3       = F3;
+ 307   1              xPLLFRAC4       = F4;
+ 308   1      
+ 309   1              Counter = 0;
+ 310   1              while(1)
+ 311   1              {       
+ 312   2                      Counter += 100;
+ 313   2                      xPLLADFC        = 0xEF;
+ 314   2                      for(i=0 ; i<Counter ; i++);
+ 315   2                      xPLLADFC        = 0xEF;
+ 316   2      
+ 317   2                      STA = 0;
+ 318   2                      for(i=0 ; i<0x1000 ; i++)
+ 319   2                      {
+ 320   3                              if(xPLLLD & 0x40)
+ 321   3                              {
+ 322   4                                      STA = 1;
+ 323   4                                      break;
+ 324   4                              }
+ 325   3                      }
+ 326   2      
+ 327   2                      if(STA) break;
+ 328   2              }
+ 329   1      
+ 330   1              xRXRFPD = 0xF7;
+ 331   1              xRXRFPU = 0xFF;
+ 332   1              xTXRFPD = 0xFF;
+ 333   1              xTXRFPU = 0xFF;
+ 334   1      }
+ 335          
+ 336          
+ 337          void ZHAL_CHANNEL_SET(UINT8 CH)
+ 338          {
+ 339   1              if(Mode_19MHz)
+ 340   1                              ZHAL_CHANNEL_SET_CHIP92_XTAL19(CH);
+ 341   1              else            ZHAL_CHANNEL_SET_CHIP92_XTAL16(CH);
+ 342   1      }
+ 343          
+ 344          
+ 345          
+ 346          void ZHAL_3V_LOGIC_INIT()
+ 347          {       
+ 348   1              xPDM    = 0x00;
+ 349   1              //
+ 350   1              //      [2008-03-06] VER 1.63
+ 351   1              //
+ 352   1              //xPDCON        = 0xE8; // 1110_1000. BOD is NOT enabled. EVK V1.5
+ 353   1              if(xCHIPID >= 0x96)
+ 354   1              {
+ 355   2                      xPDCON = 0xE8;  // 1110_1000. BOD(Bit2)=0(Enabled, reversed polarity)
+ 356   2              }
+ 357   1              else
+ 358   1              {
+ 359   2                      xPDCON = 0xEC;  // 1110_1100. BOD(Bit2)=1(Enabled)
+ 360   2              }
+ 361   1              //
+ 362   1              xRCOSC1= 0x3F;
+ 363   1              xRCOSC2= 0xF4;
+ 364   1              xRTDLY  = 0x02;
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 7   
+
+ 365   1              xRTCON  = 0x80;
+ 366   1              xRTINT1 = 0x00;
+ 367   1              xRTINT0 = 0x08;
+ 368   1              xCKPLL  = 0xC2;
+ 369   1      }
+ 370          
+ 371          //- RETURN      : 1=Fail, 0=OK
+ 372          UINT8 ZHAL_MODEM_INIT_CHIP92(UINT8 XTAL19, UINT16 WaitLoopCounter)
+ 373          {
+ 374   1              UINT8   ModemOn_INT_STS;
+ 375   1              UINT8   ModemOn_INT_IDX;
+ 376   1              UINT8   ModemOn_RFIE;
+ 377   1              UINT16  iw;
+ 378   1              UINT8   InitError;      
+ 379   1              
+ 380   1              xRFCONCNF       = 0xFD;
+ 381   1              xCORCNF0        = 0xC0;
+ 382   1              xCORCNF1        = 0x85; // VER1.71 of PHY.C(Newly added)
+ 383   1              xTDCNF3         = 0x7F;
+ 384   1      
+ 385   1              xTDCNF2         = 0xFF;
+ 386   1      
+ 387   1              xAGCCNF0 = 0xC2;
+ 388   1              xAGCCNF1 = 0x81;
+ 389   1              xAGCCNF3 = 0xFF;
+ 390   1              xAGCCNF5 = 0xDE;
+ 391   1              xAGCCNF6 = 0xD9;
+ 392   1              
+ 393   1      //      xAGCCNF7 = 0x83;
+ 394   1      //      xAGCCNF8 = 0x8B;        
+ 395   1      //      xAGCCNF10 = 0xE0;
+ 396   1      //      xAGCCNF11 = 0x20;       
+ 397   1      //      xAGCCNF15 = 0xCE;
+ 398   1      //      xAGCCNF16 = 0xD8;
+ 399   1      //      xAGCCNF17 = 0xE7;
+ 400   1      //      xAGCCNF18 = 0xE7;
+ 401   1      //      xAGCCNF19 = 0xEF;
+ 402   1              xAGCCNF7 = 0xF8;        // VER1.71 of PHY.C
+ 403   1              xAGCCNF8 = 0xF8;        // VER1.71 of PHY.C
+ 404   1              xAGCCNF9 = 0xE0;        // VER1.71 of PHY.C
+ 405   1              xAGCCNF10 = 0xF8;       // VER1.71 of PHY.C
+ 406   1              xAGCCNF11 = 0xFB;       // VER1.71 of PHY.C
+ 407   1              xAGCCNF12 = 0xE0;       // VER1.71 of PHY.C
+ 408   1              xAGCCNF15 = 0x07;       // VER1.71 of PHY.C
+ 409   1              xAGCCNF16 = 0x0F;       // VER1.71 of PHY.C
+ 410   1              xAGCCNF17 = 0x21;       // VER1.71 of PHY.C
+ 411   1              xAGCCNF18 = 0x1D;       // VER1.71 of PHY.C
+ 412   1              xAGCCNF19 = 0xEC;       // VER1.71 of PHY.C
+ 413   1              
+ 414   1      //      xAGCCNF22 = 0xF6;
+ 415   1              xAGCCNF22 = 0xF5;       // VER1.71 of PHY.C
+ 416   1              xAGCCNF23 = 0x77;
+ 417   1              xAGCCNF24 = 0x88;
+ 418   1              xAGCCNF26 = 0x3F;
+ 419   1              
+ 420   1              // RF Setting
+ 421   1              xPLLADFC = 0x6F;
+ 422   1              //xPLLLD        = 0x0A; // PHY v1.75
+ 423   1              xPLLLD  = 0x1C;         // PHY v1.76
+ 424   1              xPLLCP  = 0x32;
+ 425   1              xPLLVC  = 0xE8;
+ 426   1              xPLLDIV         = 0xFA; 
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 8   
+
+ 427   1              xPLLBUF         = 0x7F;
+ 428   1              xRXLNA  = 0x12;
+ 429   1              xRXMIX  = 0x70;
+ 430   1              xRXIP2I         = 0x12;
+ 431   1              xRXIP2Q         = 0x2A;
+ 432   1              xRXBBAMP = 0xF8;
+ 433   1              xRXRSSI = 0x4F;
+ 434   1              xCTLVGA = 0x00; 
+ 435   1      //      xPLLLF1         = 0x01;
+ 436   1      //      xPLLLF2         = 0x9F;
+ 437   1      //      xPLLLF3         = 0x78;
+ 438   1              xPLLLF1         = 0x04;         // VER1.71 of PHY.C     
+ 439   1              xPLLLF2         = 0x4F;         // VER1.71 of PHY.C     
+ 440   1              xPLLLF3         = 0x59;         // VER1.71 of PHY.C
+ 441   1      //      xVRXLPF = 0xE0;
+ 442   1              xVRXLPF = 0xED;         // VER1.70 of PHY.C
+ 443   1              xTXPA   = 0x9F;
+ 444   1              xTXDA   = 0xFF;
+ 445   1              xTXMIX  = 0x6F;
+ 446   1      //      xTXLPF  = 0x12;         
+ 447   1              xTXLPF  = 0x3A;         // VER1.71 of PHY.C
+ 448   1              xBIAS   = 0x11;                 //
+ 449   1              xSADCCON        = 0x30;         //
+ 450   1      
+ 451   1              xRXRFPD = 0xF7;
+ 452   1              xRXRFPU = 0xFF; // Release RF RX-path Power-up
+ 453   1              xPCMD0 &= 0x7F;
+ 454   1      
+ 455   1              if(XTAL19)              // 19.2 MHz PLL
+ 456   1              {
+ 457   2                      xPLLADIV = 0x01;
+ 458   2                      xPLLBDIV = 0x06;
+ 459   2                      xPLLFRAC3 = 0x2E;
+ 460   2                      xPLLFRAC4 = 0xE0;
+ 461   2              }       
+ 462   1      
+ 463   1              xPLLPD          = 0xFF; // Release PLL Power-down
+ 464   1              xPLLPU  = 0xFF; // Release PLL Power-up
+ 465   1              xRXRFPD = 0xF7; // Release RF RX-path Power-down
+ 466   1              xRXRFPU = 0xFF; // Release RF RX-path Power-up
+ 467   1              xTXRFPD = 0xFF; // Release RF TX-path Power-down
+ 468   1              xTXRFPU         = 0xFF; // Release RF TX-path Power-up
+ 469   1              xPCMD1  = 0x84; // Release PHY TX/RX-path off           
+ 470   1      
+ 471   1              // Digital DCC  
+ 472   1              xCLKON0 = 0xC2; 
+ 473   1              xRXRFPD = 0xF7;
+ 474   1              xRXRFPU = 0xFF;         
+ 475   1              xDCCCNF = 0x1C;
+ 476   1              xRXVGA = 0x06;
+ 477   1              xCTLVGA = 0x00;         // Analog DCC disable
+ 478   1              xDCCCON = 0xC5;         // Full Cal
+ 479   1      
+ 480   1              InitError = 1;
+ 481   1              for(iw=0 ; iw<WaitLoopCounter ; iw++)
+ 482   1              {
+ 483   2                      if( (xDCCCON & 0x04) == 0)
+ 484   2                      {
+ 485   3                              InitError = 0;
+ 486   3                              break;
+ 487   3                      }
+ 488   2              }       
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 9   
+
+ 489   1              xCLKON0 = 0xFF;
+ 490   1              xDCCCNF = 0x08;
+ 491   1              xDCCCON = 0xC9;         // Tracking ON
+ 492   1              xRXRFPU = 0x00;
+ 493   1              //
+ 494   1      
+ 495   1              if(InitError == 0)
+ 496   1              {
+ 497   2                      ModemOn_RFIE = RFIE;
+ 498   2                      RFIE = 0;
+ 499   2                      xINTCON = 0xF1; // 1111_0001
+ 500   2                      xPCMD0 &= 0x7F; // bit[7]=0
+ 501   2                      xPCMD0 &= 0xBF; // bit[6]=0     
+ 502   2      
+ 503   2                      InitError = 1;
+ 504   2                      for(iw=0 ; iw<WaitLoopCounter ; iw++)
+ 505   2                      {
+ 506   3                              ModemOn_INT_STS = xINTSTS & 0x0F;
+ 507   3                              if(ModemOn_INT_STS != 0x0F)
+ 508   3                              {
+ 509   4                                      ModemOn_INT_IDX = xINTIDX;
+ 510   4                                      EXIF &= 0xEF;
+ 511   4                                      if(ModemOn_INT_STS == 0x0E)
+ 512   4                                      {
+ 513   5                                              InitError = 0;
+ 514   5                                              break;  // 0000_1110. Modem-On Interrupt
+ 515   5                                      }
+ 516   4                              }
+ 517   3                      }
+ 518   2      
+ 519   2                      // [2008-03-06] VER 1.63
+ 520   2                      //xINTCON = 0xFE;       // 1111_1110. RxEnd=1, RxStart=1, TxEnd=1, Modem-On=0. EVK V1.5
+ 521   2                      xINTCON = 0xFA;         // 1111_1010. RxEnd=1, RxStart=0, TxEnd=1, Modem-On=0. EVK V1.6
+ 522   2                      xTST2 = 0xFF;
+ 523   2                      xTST13 = 0x00;
+ 524   2                      xTST15 = 0x00;
+ 525   2                      xCLKON1 = 0x7B;                 // TSTCLK is OFF        
+ 526   2                      RFIE = ModemOn_RFIE;
+ 527   2              }
+ 528   1      
+ 529   1              return InitError;
+ 530   1              
+ 531   1      }
+ 532          
+ 533          
+ 534          UINT8 ZHAL_MODEM_INIT(UINT16 WaitLoopCounter)
+ 535          {
+ 536   1              UINT8   InitError;
+ 537   1              
+ 538   1              InitError = ZHAL_MODEM_INIT_CHIP92(Mode_19MHz, WaitLoopCounter);
+ 539   1      
+ 540   1              return InitError;
+ 541   1      }
+ 542          
+ 543          //-- RETURN
+ 544          //      255     : Max Energy (High)
+ 545          //      0       : Min Energy (Low)
+ 546          UINT8 ZHAL_ED_LEVEL_GET()
+ 547          {
+ 548   1              INT8            dBm;
+ 549   1              UINT16  Tmp16;
+ 550   1              UINT8   Level;
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 10  
+
+ 551   1      
+ 552   1              dBm = xAGCSTS2;
+ 553   1      
+ 554   1              // RSSI : LQI type, 0~255, 255=high power
+ 555   1              if(dBm > 0)
+ 556   1              {
+ 557   2                      Level = 255;
+ 558   2              }
+ 559   1              else if(dBm > -100)
+ 560   1              {
+ 561   2                      Tmp16 = 100 + dBm;
+ 562   2                      Tmp16 *= 255;
+ 563   2                      Tmp16 /= 100;
+ 564   2                      Level = Tmp16;
+ 565   2              }
+ 566   1              else
+ 567   1              {
+ 568   2                      Level = 0;
+ 569   2              }
+ 570   1      
+ 571   1              return  Level;
+ 572   1      
+ 573   1      }
+ 574          
+ 575          #if (ENABLE_PHY_UNCALLED)
+              INT8 ZHAL_ED_dBm_GET()
+              {
+                      INT8            dBm;
+              
+                      dBm = xAGCSTS2;
+                      return  dBm;
+              }
+              #endif
+ 584          
+ 585                  extern  UINT8   FlagRxAck;
+ 586                  extern  UINT8   FlagTxDone;
+ 587                  UINT8   TxOperating = 0;
+ 588          
+ 589          //-     RETURN
+ 590          //      0xE1    : Channel Access Failure
+ 591          //      0xE9    : No Ack
+ 592          //      0x00    : SUCCESS
+ 593          UINT8 ZHAL_SEND_TXFIFO()
+ 594          {
+ 595   1              UINT16  iw;
+ 596   1              UINT8   STA;
+ 597   1              UINT8   _RXSTS;
+ 598   1      
+ 599   1              xMTFCRP = 0;
+ 600   1              xMACDSN = xMTxFIFO(0+3);
+ 601   1              FlagTxDone = 0;
+ 602   1              FlagRxAck = 0;
+ 603   1      
+ 604   1              //
+ 605   1              // Check Modem Status before transmitting. Added in VER1.70 of PHY.C
+ 606   1              //
+ 607   1              _RXSTS = xPHYSTS0 & 0x70;
+ 608   1              if( (_RXSTS != 0x00) && (_RXSTS != 0x10) )
+ 609   1              {
+ 610   2                      return  0xE1;
+ 611   2              }
+ 612   1              //
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 11  
+
+ 613   1      
+ 614   1              TxOperating = 1;
+ 615   1              FlagTxDone = 0;
+ 616   1              xPCMD0 &= 0xFB; 
+ 617   1              #if (OPERATE_AT_16MHz)
+                      for(iw=0 ; iw<5000 ; iw++)              // MAX 4.84 ms
+                      #else
+ 620   1              for(iw=0 ; iw<2500 ; iw++)              // MAX 4.84 ms
+ 621   1              #endif
+ 622   1              {
+ 623   2                      if(FlagTxDone)
+ 624   2                      {
+ 625   3                              break;
+ 626   3                      }
+ 627   2      
+ 628   2                      #if (OPERATE_AT_16MHz)
+                              if(iw == 4999)
+                              #else
+ 631   2                      if(iw == 2499)
+ 632   2                      #endif
+ 633   2                      {               
+ 634   3                              xPCMD0 |= 0x04;
+ 635   3                              xSWRST &= 0xFE;
+ 636   3                              xSWRST |= 0x01;
+ 637   3                              xSWRST &= 0xFD;
+ 638   3                              xSWRST |= 0x02;
+ 639   3                              xMTFCRP = 0;
+ 640   3                              TxOperating = 0;
+ 641   3                              STA = 0xE1;
+ 642   3                              return  STA;
+ 643   3                      }
+ 644   2              }
+ 645   1              TxOperating = 0;
+ 646   1      
+ 647   1              STA = 0;
+ 648   1              if(xMTxFIFO(0+1) & 0x20)
+ 649   1              {               
+ 650   2                      STA = 0xE9;
+ 651   2                      #if (OPERATE_AT_16MHz)
+                              for(iw=0 ; iw<1200 ; iw++)              // MAX 2.0 ms
+                              #else
+ 654   2                      for(iw=0 ; iw<600 ; iw++)               // MAX 2.0 ms
+ 655   2                      #endif
+ 656   2                      {
+ 657   3                              if(FlagRxAck)
+ 658   3                              {
+ 659   4                                      STA = 0;
+ 660   4                                      break;
+ 661   4                              }
+ 662   3                      }                       
+ 663   2              }
+ 664   1      
+ 665   1              xMTFCRP = 0;
+ 666   1              
+ 667   1              return  STA;
+ 668   1      }
+ 669          
+ 670          void ZHAL_SEND_ACK(UINT8 FP, UINT8 DSN)
+ 671          {
+ 672   1              UINT16  iw;
+ 673   1              UINT8   _RXSTS;
+ 674   1      
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 12  
+
+ 675   1              if(TxOperating) return;
+ 676   1      
+ 677   1              xMTxFIFO(0x80) = 0x05;
+ 678   1              xMTxFIFO(0x81) = 0x02;
+ 679   1              if(FP)  xMTxFIFO(0x81) |= 0x10;
+ 680   1              xMTxFIFO(0x82) = 0x00;
+ 681   1              xMTxFIFO(0x83) = DSN;           
+ 682   1      
+ 683   1              xCCA0 = 0x88;                   // Disable CCA
+ 684   1              xMTFCRP = 0x80;         
+ 685   1      
+ 686   1              //
+ 687   1              // Check Modem Status before transmitting. Added in VER1.70 of PHY.C
+ 688   1              //
+ 689   1              _RXSTS = xPHYSTS0 & 0x70;
+ 690   1              if( (_RXSTS != 0x00) && (_RXSTS != 0x10) )
+ 691   1              {
+ 692   2                      goto JP_SEND_ACK_RETURN;
+ 693   2              }
+ 694   1              //
+ 695   1              
+ 696   1              xPCMD0 &= 0xFB;
+ 697   1              #if (OPERATE_AT_16MHz)
+                      for(iw=0 ; iw<400 ; iw++);              // LoopCounter=400(400us)
+                      #else
+ 700   1              for(iw=0 ; iw<180 ; iw++);              // LoopCounter=180(400us)
+ 701   1              #endif
+ 702   1              xPCMD0 |= 0x04;
+ 703   1      
+ 704   1              JP_SEND_ACK_RETURN:
+ 705   1      
+ 706   1              xMTFCRP = 0x00;
+ 707   1              xCCA0 = 0xC4;                   // Enable CCA   
+ 708   1      }
+ 709          
+ 710          #if (ENABLE_PHY_UNCALLED)
+              //-     Enable : Test Mode Enable
+              // 0    : Normal Operation Mode
+              // 1    : Continuous RF Signal Generation Mode
+              //-     ModuleationEn : Modulated Signal Generation Enable
+              // 0    : Carrier Signal Generation
+              // 1    : Modulated Signal Generation with IFS(Inter-Frame-Space)
+              // 2    : Modulated Signal Generation without IFS(Inter-Frame-Space)
+              void ZHAL_TEST_TXOUT(UINT8 Ena, UINT8 ModulationEn)
+              {
+                      if(Ena)
+                      {
+                              //
+                              // Common Paramaters
+                              //      
+                              xPLLPD  = 0xFF;
+                              xPLLPU  = 0x00;
+                              xPCMD0  = 0x7F;         // 0111_1111
+                              xPCMD0  = 0xFE;         // 1111_1110
+                              xPCMD1  = 0xC4;         // 1100_0100
+                              xTXRFPD = 0xFF;
+                              xTXRFPU = 0x00;
+              
+                              xRXRFPD = 0x00;
+                              xCLKON1 = 0x47;         // 0100_0111            
+              
+                              if(ModulationEn == 1)                   // Modulation with IFS
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 13  
+
+                              {
+                                      xTST0   = 0xFF;
+                                      xTST2   = 0x7F;
+                                      xTST13  = 0x7F;
+                                      xTST0   = 0xFF;
+                                      xTST0   = 0x77;
+                                      xTST15  = 0x00;
+                                      xTST0   = 0x77;
+                              }
+                              else if(ModulationEn == 2)      // Modulation without IFS
+                              {
+                                      xTST2   = 0x00;
+                                      xTST13  = 0x7F;
+                                      xTST0   = 0xFF;
+                                      xTST0   = 0x22;
+                              }
+                              else
+                              {
+                                      xTST14  = 0x00; // 0x5A = 700K, 0x40 = 500K
+                                      xTST0   = 0x20;
+                              }
+                      }
+                      else
+                      {
+                              xTST0   = 0x80;
+                              xCLKON1 = 0x7B;
+                              xRXRFPD = 0xF7;
+                              xRXRFPU = 0xFF;
+                              xTXRFPD = 0xFF;
+                              xTXRFPU = 0xFF;
+                              xPCMD0  = 0xBF;
+                      }
+                      
+              }
+              #endif
+ 772          
+ 773          #if (ENABLE_PHY_UNCALLED)
+              // Rate = 0     :       250 Kbps
+              // Rate = 1     :       500 Kbps
+              // Rate = 2     :       1 Mbps
+              // Other                :       250 Kbps
+               void ZHAL_DATARATE_SET(UINT8 Rate)
+               {      
+                      xRXFRM1 &= 0x0F;        
+                      
+                      if(Rate == 1)                   xRXFRM1 |= 0x50;        // bit[4]=1, bit[6]=1
+                      else if(Rate == 2)      xRXFRM1 |= 0xA0;        // bit[5]=1, bit[7]=1
+               
+                      if(Rate==2)
+                      {
+                              xRXRSSI = 0x4F;
+                              xVRXLPF = 0xEA;
+                      }
+                      else
+                      {       
+                              xRXRSSI = 0x4F;
+                              xVRXLPF = 0xED;
+                      }
+               }
+              #endif
+ 797          
+ 798          // Rate = 0     :       250 Kbps
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 14  
+
+ 799          // Rate = 1     :       500 Kbps
+ 800          // Rate = 2     :       1 Mbps
+ 801          // Other                :       250 Kbps
+ 802           void ZHAL_DATARATE_SET_ISR(UINT8 Rate)
+ 803           {      
+ 804   1              xRXFRM1 &= 0x0F;        
+ 805   1              
+ 806   1              if(Rate == 1)                   xRXFRM1 |= 0x50;        // bit[4]=1, bit[6]=1
+ 807   1              else if(Rate == 2)      xRXFRM1 |= 0xA0;        // bit[5]=1, bit[7]=1
+ 808   1       
+ 809   1              if(Rate==2)
+ 810   1              {
+ 811   2                      xRXRSSI = 0x4F;
+ 812   2                      xVRXLPF = 0xEA;
+ 813   2              }
+ 814   1              else
+ 815   1              {       
+ 816   2                      xRXRSSI = 0x4F;
+ 817   2                      xVRXLPF = 0xED;
+ 818   2              }
+ 819   1       }
+ 820          
+ 821          
+ 822          //-----------------------------
+ 823          // MAC_CTRL
+ 824          //-----------------------------
+ 825          // bit[7:5] : rsv                               :: default=0
+ 826          // bit[4] : prevent_ack_packet  :: default=0
+ 827          // bit[3] : pan_coordinator             :: default=0
+ 828          // bit[2] ; addr_decode                 :: default=1
+ 829          // bit[1] : auto_crc                            :: default=1
+ 830          // bit[0] : auto_ack                    :: default=0
+ 831          void ZHAL_MAC_CTRL_SET(UINT8 MacCtrl)
+ 832          {
+ 833   1              xMACCTRL = MacCtrl;
+ 834   1      }
+ 835          
+ 836          #if (ENABLE_PHY_UNCALLED)
+              void ZHAL_AUTO_CRC_SET(UINT8 Ena)
+              {
+                      if(Ena) xMACCTRL |= 0x02;               // bit[1]=1
+                      else            xMACCTRL &= ~0x02;              // bit[1]=0
+              }
+              #endif
+ 843          
+ 844          #if (ENABLE_PHY_UNCALLED)
+              void ZHAL_ADDR_DECODE_SET(UINT8 Ena)
+              {
+                      if(Ena) xMACCTRL |= 0x04;               // bit[2]=1
+                      else            xMACCTRL &= ~0x04;              // bit[2]=0
+              }
+              #endif
+ 851          
+ 852          void ZHAL_COORDINATOR_SET(UINT8 Ena)
+ 853          {       
+ 854   1      //      if(Ena) xMACCTRL |= 0x10;
+ 855   1      //      else            xMACCTRL &= ~0x10;
+ 856   1              if(Ena) xMACCTRL |= 0x08;               // bit[3]=1. VER1.71 of PHY.C
+ 857   1              else            xMACCTRL &= ~0x08;              // bit[3]=0. VER1.71 of PHY.C
+ 858   1      }
+ 859          
+ 860          void ZHAL_PAN_ID_SET(UINT16 ID) {
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 15  
+
+ 861   1              xPANID(0) = (UINT8) (ID) ;
+ 862   1              xPANID(1) = (UINT8) (ID >> 8) ;
+ 863   1      }
+ 864          
+ 865          void ZHAL_SHORT_ADDR_SET(UINT16 Addr) {
+ 866   1              xSHORTADDR(0) = (UINT8) (Addr) ;
+ 867   1              xSHORTADDR(1) = (UINT8) (Addr >> 8) ;
+ 868   1      }
+ 869          
+ 870          void ZHAL_IEEE_ADDR_SET(UINT8 *pAddr) {
+ 871   1              memcpy( &xEXTADDR(0), pAddr, 8);
+ 872   1      }
+ 873          
+ 874          void ZHAL_MAC_INIT()
+ 875          {
+ 876   1              xMACCTRL = 0x16;
+ 877   1              xMRFCRP = 0;
+ 878   1              xMRFCWP = 0;
+ 879   1              xMTFCRP = 0;
+ 880   1              xMTFCWP = 0;
+ 881   1      }
+ 882          
+ 883          //-----------------------------------
+ 884          //--    PowerLevel
+ 885          //-----------------------------------
+ 886          //      0       : 8             dBm
+ 887          //      1       : 8             dBm
+ 888          //      2       : 8             dBm
+ 889          //      3       : 7             dBm
+ 890          //      4       : 6             dBm
+ 891          //      5       : 5             dBm
+ 892          //      6       : 4             dBm
+ 893          //      7       : 3             dBm
+ 894          //      8       : 2             dBm
+ 895          //      9       : 1             dBm
+ 896          //      10      : 0             dBm
+ 897          //      11      : -5            dBm
+ 898          //      12      : -7            dBm
+ 899          //      13      : -10   dBm
+ 900          //      14      : -15   dBm
+ 901          //      15      : -20   dBm
+ 902          //      16      : -30   dBm
+ 903          //      17      : -40   dBm
+ 904          //      18      : -50   dBm
+ 905          //-----------------------------------
+ 906          
+ 907          void ZHAL_TXPOWER_SET_CHIP92(UINT8 PowerLevel) 
+ 908          {
+ 909   1              switch(PowerLevel)
+ 910   1              {
+ 911   2                      case 0  : xTXPA=0x9F; xTXDA=0xFF; xTXMIX=0x6F;  break;
+ 912   2                      case 1  : xTXPA=0x9F; xTXDA=0xFF; xTXMIX=0x6F;  break;
+ 913   2                      case 2  : xTXPA=0x9F; xTXDA=0xFF; xTXMIX=0x6F;  break;
+ 914   2                      case 3  : xTXPA=0x9F; xTXDA=0xF5; xTXMIX=0x6F;  break;
+ 915   2                      case 4  : xTXPA=0x9D; xTXDA=0xF0; xTXMIX=0x6F;  break;
+ 916   2                      case 5  : xTXPA=0x9F; xTXDA=0xED; xTXMIX=0x6F;  break;
+ 917   2                      case 6  : xTXPA=0x95; xTXDA=0xED; xTXMIX=0x6F;  break;
+ 918   2                      case 7  : xTXPA=0x1F; xTXDA=0xF3; xTXMIX=0x6F;  break;
+ 919   2                      case 8  : xTXPA=0x1F; xTXDA=0xEC; xTXMIX=0x6F;  break;
+ 920   2                      case 9  : xTXPA=0x1E; xTXDA=0xEA; xTXMIX=0x6F;  break;
+ 921   2                      case 10 : xTXPA=0x1C; xTXDA=0xE9; xTXMIX=0x6F;  break;
+ 922   2                      case 11 : xTXPA=0x1E; xTXDA=0xE3; xTXMIX=0x6F;  break;
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 16  
+
+ 923   2                      case 12 : xTXPA=0x18; xTXDA=0xE3; xTXMIX=0x6F;  break;
+ 924   2                      case 13 : xTXPA=0x18; xTXDA=0xE2; xTXMIX=0x6F;  break;          
+ 925   2                      case 14 : xTXPA=0x13; xTXDA=0xE2; xTXMIX=0x6F;  break;          
+ 926   2                      case 15 : xTXPA=0x12; xTXDA=0xE2; xTXMIX=0x6E;  break;
+ 927   2                      case 16 : xTXPA=0x11; xTXDA=0xE2; xTXMIX=0x6D;  break;
+ 928   2              //      case 17 : xTXPA=0x9F; xTXDA=0xFF; xTXMIX=0x1C;  break;  // PHY v1.75
+ 929   2              //      case 18 : xTXPA=0x18; xTXDA=0xE7; xTXMIX=0x1C;  break;  // PHY v1.75
+ 930   2                      case 17 : xTXPA=0x11; xTXDA=0xE1; xTXMIX=0x6D;  break;  // PHY v1.76
+ 931   2                      case 18 : xTXPA=0x11; xTXDA=0xE0; xTXMIX=0x6D;  break;  // PHY v1.76
+ 932   2                      default : xTXPA=0x9F; xTXDA=0xFF; xTXMIX=0x6F;  break;
+ 933   2                      
+ 934   2              }
+ 935   1      
+ 936   1      }
+ 937          
+ 938          void ZHAL_TXPOWER_SET(UINT8 PowerLevel)
+ 939          {
+ 940   1              ZHAL_TXPOWER_SET_CHIP92(PowerLevel);
+ 941   1      }
+ 942          
+ 943          /////////////////////////////////////////////////////////////////////////////////////
+ 944          /////////////////////////////////////////////////////////////////////////////////////
+ 945          /////////////////////////////////////////////////////////////////////////////////////
+ 946          /////////////////////////////////////////////////////////////////////////////////////
+ 947          /////////////////////////////////////////////////////////////////////////////////////
+ 948          
+ 949          void ZHAL_EXT0_INT_SET(UINT8 IntEna, UINT8 Priority, UINT8 TypeEdge) 
+ 950          {
+ 951   1              UINT8   _EA;
+ 952   1      
+ 953   1              _EA = EA;
+ 954   1              EA = 0; 
+ 955   1      
+ 956   1              IT0 = TypeEdge;                 // Edge=1, Level = 0
+ 957   1              PX0 = Priority;
+ 958   1      
+ 959   1              if(IntEna)      EX0 = 1;
+ 960   1              else            EX0 = 0;
+ 961   1      
+ 962   1              EA = _EA;
+ 963   1      }
+ 964          
+ 965          
+ 966          void ZHAL_EXT1_INT_SET(UINT8 IntEna, UINT8 Priority, UINT8 TypeEdge) 
+ 967          {
+ 968   1              UINT8   _EA;
+ 969   1      
+ 970   1              _EA = EA;
+ 971   1              EA = 0; 
+ 972   1      
+ 973   1              IT1 = TypeEdge;                 // Edge=1, Level = 0
+ 974   1              PX1 = Priority;
+ 975   1      
+ 976   1              if(IntEna)      EX1 = 1;
+ 977   1              else            EX1 = 0;
+ 978   1      
+ 979   1              EA = _EA;       
+ 980   1      }
+ 981          
+ 982          void ZHAL_RF_INT_SET(UINT8 IntEna, UINT8 Priority)
+ 983          {
+ 984   1              UINT8   _EA;
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 17  
+
+ 985   1      
+ 986   1              _EA = EA;
+ 987   1              EA = 0;
+ 988   1      
+ 989   1              RFIP = Priority;
+ 990   1      
+ 991   1              if(IntEna)      RFIE = 1;
+ 992   1              else                    RFIE = 0;
+ 993   1      
+ 994   1              EA = _EA;
+ 995   1      }
+ 996          
+ 997          void ZHAL_SYSTEM_INTERRUPT(UINT8 IntEna)
+ 998          {
+ 999   1              EA = IntEna;
+1000   1      }
+1001          
+1002          
+1003          /////////////////////////////////////////////////////////////////////////////////////
+1004          /////////////////////////////////////////////////////////////////////////////////////
+1005          
+1006          
+1007          #if (ENABLE_PHY_UNCALLED)
+              //-------------------------------------------------------
+              // Ena
+              //-------------------------------------------------------
+              // bit[1] : 1=Enable TRSWB(P1.6).       TxState=0, RxState=1
+              // bit[0] : 1=Enable TRSW(P1.7).                TxState=1, RxState=0
+              //-------------------------------------------------------
+              void ZHAL_TRSW_SET(UINT8 Ena)
+              {
+                      // TRSW = P1.7
+                      // TRSWB = P1.6
+              
+                      xGPCNF4 &= 0x3F;
+                      if(Ena & 0x01)
+                      {       
+                              xGPCNF4 |= 0x40;
+                              xMONCON0 &= 0x0F;
+                      }
+              
+                      xGPCNF4 &= 0xCF;
+                      if(Ena & 0x02)
+                      {
+                              xGPCNF4 |= 0x10;
+                      }
+                      
+              }
+              #endif
+1034          
+1035          void ZHAL_PORT0_INOUT_SET(UINT8 Port, UINT8 OutEnable)
+1036          {
+1037   1              UINT8   MASK_OR;
+1038   1              UINT8   MASK_AND;
+1039   1              UINT8   MASK_ENA;
+1040   1      
+1041   1              MASK_ENA = 1;
+1042   1              switch(Port)
+1043   1              {
+1044   2                      case 0x0        : MASK_OR = 0x01;       MASK_AND = 0xFE;        break;
+1045   2                      case 0x1        : MASK_OR = 0x02;       MASK_AND = 0xFD;        break;
+1046   2                      case 0x2        : MASK_OR = 0x04;       MASK_AND = 0xFB;        break;
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 18  
+
+1047   2                      case 0x3        : MASK_OR = 0x08;       MASK_AND = 0xF7;        break;
+1048   2                      case 0x4        : MASK_OR = 0x10;       MASK_AND = 0xEF;        break;
+1049   2                      case 0x5        : MASK_OR = 0x20;       MASK_AND = 0xDF;        break;
+1050   2                      case 0x6        : MASK_OR = 0x40;       MASK_AND = 0xBF;        break;
+1051   2                      case 0x7        : MASK_OR = 0x80;       MASK_AND = 0x7F;        break;
+1052   2                      case 0xA        : MASK_OR = 0xFF;       MASK_AND = 0x00;        break;
+1053   2                      default : MASK_ENA = 0;                                                 break;
+1054   2              }
+1055   1      
+1056   1              if(MASK_ENA)
+1057   1              {
+1058   2                      if(Port == 0x0A)        {       P0REN = 0;      P0OEN = 0;      }
+1059   2              
+1060   2                      if(OutEnable)   {       P0REN |= MASK_OR;       P0OEN &= MASK_AND;      }
+1061   2                      else                            {       P0REN &= MASK_AND;      P0OEN |= MASK_OR;       }
+1062   2              }
+1063   1      }
+1064          
+1065          
+1066          /*void ZHAL_PORT1_INOUT_SET(UINT8 Port, UINT8 OutEnable)
+1067          {
+1068                  UINT8   MASK_OR;
+1069                  UINT8   MASK_AND;
+1070                  UINT8   MASK_ENA;
+1071          
+1072                  MASK_ENA = 1;
+1073                  switch(Port)
+1074                  {
+1075                          case 0x0        : MASK_OR = 0x01;       MASK_AND = 0xFE;        break;
+1076                          case 0x1        : MASK_OR = 0x02;       MASK_AND = 0xFD;        break;
+1077                          case 0x2        : MASK_OR = 0x04;       MASK_AND = 0xFB;        break;
+1078                          case 0x3        : MASK_OR = 0x08;       MASK_AND = 0xF7;        break;
+1079                          case 0x4        : MASK_OR = 0x10;       MASK_AND = 0xEF;        break;
+1080                          case 0x5        : MASK_OR = 0x20;       MASK_AND = 0xDF;        break;
+1081                          case 0x6        : MASK_OR = 0x40;       MASK_AND = 0xBF;        break;
+1082                          case 0x7        : MASK_OR = 0x80;       MASK_AND = 0x7F;        break;
+1083                          case 0xA        : MASK_OR = 0xFF;       MASK_AND = 0x00;        break;
+1084                          default : MASK_ENA = 0;                                                 break;
+1085                  }
+1086          
+1087                  if(MASK_ENA)
+1088                  {
+1089                          if(Port == 0x0A)        {       P1REN = 0;      P1OEN = 0;      }
+1090                          
+1091                          if(OutEnable)   {       P1REN |= MASK_OR;       P1OEN &= MASK_AND;      }
+1092                          else                            {       P1REN &= MASK_AND;      P1OEN |= MASK_OR;       }
+1093                  }
+1094          
+1095          }*/
+1096          
+1097          /*void ZHAL_PORT3_INOUT_SET(UINT8 Port, UINT8 OutEnable)
+1098          {
+1099                  UINT8   MASK_OR;
+1100                  UINT8   MASK_AND;
+1101                  UINT8   MASK_ENA;
+1102          
+1103                  MASK_ENA = 1;
+1104                  switch(Port)
+1105                  {
+1106                          case 0x0        : MASK_OR = 0x01;       MASK_AND = 0xFE;        break;
+1107                          case 0x1        : MASK_OR = 0x02;       MASK_AND = 0xFD;        break;
+1108                          case 0x2        : MASK_OR = 0x04;       MASK_AND = 0xFB;        break;
+C51 COMPILER V9.00   PHY                                                                   05/08/2012 16:12:19 PAGE 19  
+
+1109                          case 0x3        : MASK_OR = 0x08;       MASK_AND = 0xF7;        break;
+1110                          case 0x4        : MASK_OR = 0x10;       MASK_AND = 0xEF;        break;
+1111                          case 0x5        : MASK_OR = 0x20;       MASK_AND = 0xDF;        break;
+1112                          case 0x6        : MASK_OR = 0x40;       MASK_AND = 0xBF;        break;
+1113                          case 0x7        : MASK_OR = 0x80;       MASK_AND = 0x7F;        break;
+1114                          case 0xA        : MASK_OR = 0xFF;       MASK_AND = 0x00;        break;          
+1115                          default : MASK_ENA = 0;                                                 break;
+1116                  }
+1117          
+1118                  if(MASK_ENA)
+1119                  {
+1120                          if(Port == 0x0A)        {       P3REN = 0;      P3OEN = 0;      }
+1121                  
+1122                          if(OutEnable)   {       P3REN |= MASK_OR;       P3OEN &= MASK_AND;      }
+1123                          else                            {       P3REN &= MASK_AND;      P3OEN |= MASK_OR;       }
+1124                  }       
+1125                  
+1126          }  */
+1127          
+1128          #if (ENABLE_PHY_UNCALLED)
+              //-- VFifoSrc
+              //      0       : I2S
+              //      1       : SPI
+              //      2       : UART0
+              //      3       : UART1
+              void ZHAL_VFIFO_MUX_SET(UINT8 VFifoSrc)
+              {
+                      xSRCCTL &= 0x9F;        // bit[6:5]=0
+                      xSRCCTL |= (VFifoSrc & 0x03) << 5;
+              
+              //      xVTF_CTL |= 0x01;
+              //      xVTF_CTL |= 0x02;
+              //      xVRF_CTL |= 0x01;
+              //      xVRF_CTL |= 0x02;
+              //      while(xVTF_STS);
+              }
+              #endif
+1146          
+1147          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2232    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      2      12
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

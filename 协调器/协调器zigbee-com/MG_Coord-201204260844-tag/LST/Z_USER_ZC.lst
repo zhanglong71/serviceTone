@@ -1,0 +1,1620 @@
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE Z_USER_ZC
+OBJECT MODULE PLACED IN .\HEX\Z_USER_ZC.obj
+COMPILER INVOKED BY: C:\Keil\C51\bin\C51.EXE C_USER\App_ZC\Z_USER_ZC.c LARGE OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND 
+                    -PRINT(.\LST\Z_USER_ZC.lst) OBJECT(.\HEX\Z_USER_ZC.obj)
+
+line level    source
+
+   1          
+   2          /*******************************************************************************
+   3                  - Chip          : MG2450/2455
+   4                  - Vendor                : RadioPulse Inc, 2007.
+   5                  - Date          : 2010-11-15
+   6                  - Version               : VER 2.2
+   7          *******************************************************************************/
+   8          
+   9          #include "INCLUDE_TOP.h"
+  10          #include "INCLUDE_STACK.h"
+  11          
+  12          #include "C_HAL/UART.h"
+  13          #include "C_HAL/PHY.h"
+  14          #include "C_HAL/FLASH.h"
+  15          #include "C_HAL/TIMER.h"
+  16          //#include "C_HAL/LCD.h"
+  17          //#include "C_HAL/ADC.h"
+  18          #include "C_HAL/WDT.h"  // added for OTA
+  19          
+  20          #include "C_UTIL/UTIL_SYS.h"
+  21          #include "C_UTIL/UTIL_APP.h"
+  22          
+  23          //-------------------------------------------------
+  24          // User Files
+  25          //-------------------------------------------------
+  26          #include "Z_USER_CONFIG_ZC.h"
+  27          #include "C_USER/Z_USER_APP_TYPE.h"
+  28          #define MAX_END_NUM 16
+  29          UINT8 tabMyNetAddr[MAX_END_NUM][2];
+  30          UINT16 tabZbNetAddr[MAX_END_NUM];
+  31          UINT8 cntLifeNetAddr[MAX_END_NUM];   //µØÖ·ÉúÃüÖÜÆÚ¼ÆÊýÆ÷
+  32                  //----------------------------------------------------------------
+  33                  // Global Variables For Application Layer
+  34                  //----------------------------------------------------------------      
+  35                  // ZDO Configuration
+  36                  ZS_SimpDesc             AppSimpDesc;            // Simple Descriptor
+  37                  ZS_NodeDesc             AppNodeDesc;            // Node Descriptor
+  38                  #if (UserConfig_Enable_ZDP_UserDescriptor)
+                              UINT8   AppUserDescriptor[16];  // User Descriptor
+                      #endif
+  41                  
+  42                  // Variables
+  43                  UINT8   APP_DSN;
+  44                  S_ASDU  APP_ASDU;
+  45                  UINT32  UserChanList;
+  46          
+  47                  // Flash Area(HIB)
+  48                  HW_INFORMATION code     HIB     _at_ HIB_ADDRESS;
+  49          
+  50                  // Buffer For Flash Writing
+  51                  FLASH_AREA              DATA_COPY;
+  52                  //----------------------------------------------------------------      
+  53                  //----------------------------------------------------------------
+  54          
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 2   
+
+  55          #include "C_USER/Z_USER_DATA.c"         // Include Source File
+  56          #include "C_USER/Z_USER_ZDP.c"          // Include Source File
+  57          //-------------------------------------------------
+  58          /** !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! **/
+  59          #define MYBUF_NUM       4
+  60          #define MYBUF_SIZE      256             /** »º³åÇøÄÜ´æ·ÅµÄ×î³¤Êý¾ÝÖ¡³¤¶È(Ó¦¸ÃÒª¼õ¶þ, µÚÒ»¸ö´æ±ê¼Ç£¬µÚ¶þ¸ö´æ³¤¶È) **/
+  61          unsigned char SendDataBuf[MYBUF_NUM][MYBUF_SIZE];
+  62          
+  63          /****************************************************
+  64           * 
+  65           * sendBuf_clean
+  66           *
+  67           ************************************************/
+  68          void sendBuf_clean(void)
+  69          {
+  70   1              unsigned int i, j;
+  71   1              
+  72   1              for(i = 0; i < MYBUF_NUM; i++)
+  73   1              {
+  74   2                      for(j = 0; j < MYBUF_SIZE; j++)
+  75   2                      {
+  76   3                              SendDataBuf[i][j] = 0;
+  77   3                      }
+  78   2              }
+  79   1      }
+  80          
+  81          /****************************************************
+  82           * ÕÒÒ»¸ö¿ÕµÄÏî£¬×÷Îª´æÈëÊý¾ÝµÄµØµã 
+  83           * function name: findEmptyIndex
+  84           * input: 
+  85           * output:
+  86           * return: index
+  87           *
+  88           * No change buffer. only used in interrupt
+  89           *
+  90           ****************************************************/
+  91          unsigned int findEmptyIndex_Interrupt(void)
+  92          {
+  93   1              unsigned int i;
+  94   1      
+  95   1              /** find empty one **/
+  96   1              for(i = 0; i < MYBUF_NUM; i++)
+  97   1              {
+  98   2                      if(SendDataBuf[i][0] == 0)
+  99   2                      {
+ 100   3                              SendDataBuf[i][0] = 1;
+ 101   3                              return  i;
+ 102   3                      }
+ 103   2              }
+ 104   1              /** ³¬¹ý·¶Î§£¬³ö´í **/
+ 105   1              return  0xff;
+ 106   1      }
+ 107          
+ 108          /****************************************************
+ 109           * ÕÒÒ»¸öÓÐÊý¾ÝµÄÏî£¬×¼±¸·¢ËÍÊý¾Ý
+ 110           * sendCanBuf_send
+ 111           *
+ 112           ****************************************************/
+ 113          unsigned int findBusyIndex(void)
+ 114          {
+ 115   1              unsigned int i;
+ 116   1              
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 3   
+
+ 117   1          for(i = 0; i < MYBUF_NUM; i++)
+ 118   1          {
+ 119   2              if(SendDataBuf[i][0] != 0)
+ 120   2              {
+ 121   3                      //SendDataBuf[i][0] = 0;
+ 122   3                      return  i;
+ 123   3                      }
+ 124   2              }
+ 125   1      
+ 126   1              /** ³¬¹ý·¶Î§£¬³ö´í **/
+ 127   1              return  0xff;
+ 128   1      }
+ 129          
+ 130          void setIndexEmpty(unsigned int index)
+ 131          {
+ 132   1              EA = 0;
+ 133   1              SendDataBuf[index][0] = 0;
+ 134   1              EA = 1;
+ 135   1      }
+ 136          /** !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! **/
+ 137          /***********************************************************************************
+ 138           *
+ 139           *      NAME            : Initialize_ZDO_Descriptor()
+ 140           *
+ 141           *      DESCRIPTION     : Initalize ZDO(Zigbee Device Object) Descriptors.
+ 142           *              This function should be called in ZUSER_INIT().
+ 143           ***********************************************************************************/
+ 144          void Initialize_ZDO_Descriptor()
+ 145          {
+ 146   1              // Simple Descriptor
+ 147   1              AppSimpDesc.EnaSD = 1;
+ 148   1              AppSimpDesc.AppDevID = ProfileHA_DevOnOffLight_ID;
+ 149   1              AppSimpDesc.AppProID = ProfileHA;
+ 150   1              AppSimpDesc.DevVersion = 0;
+ 151   1              AppSimpDesc.EP = ProfileHA_DevOnOffLight_EP_01;
+ 152   1              AppSimpDesc.NumInClus = 2;
+ 153   1              AppSimpDesc.InClusList[0] = ProfileHA_DevOnOffLight_ClusOnOff;
+ 154   1              AppSimpDesc.InClusList[1] = ProfileHA_DevOnOffLight_ClusScenes;
+ 155   1              AppSimpDesc.NumOutClus = 0;
+ 156   1      
+ 157   1              // Node Descriptor
+ 158   1              AppNodeDesc.Avail_Type = UserConfig_DevType;
+ 159   1      #if (UserConfig_Enable_ZDP_UserDescriptor)
+                      AppNodeDesc.Avail_Type |= 0x10;
+              #endif
+ 162   1      #if (UserConfig_Enable_ZDP_CompDescReq)
+                      AppNodeDesc.Avail_Type |= 0x08;
+              #endif
+ 165   1              AppNodeDesc.Freq_ApsFlag = 0x40;
+ 166   1              AppNodeDesc.MacCapa = UserConfig_Capability;
+ 167   1              AppNodeDesc.Manufacture = UserConfig_ManufacturerCode;
+ 168   1              AppNodeDesc.MaxBufSize = apscMaxASDU;
+ 169   1              AppNodeDesc.MaxInTranSize = apscMaxASDU;
+ 170   1              AppNodeDesc.ServerMask = UserConfig_ServerMask;
+ 171   1              AppNodeDesc.MaxOutTransSize = AppNodeDesc.MaxInTranSize;
+ 172   1              AppNodeDesc.DescCapa = 0x00;
+ 173   1      
+ 174   1              // Default UserDescriptor = "MG245X-ZigBeePRO"
+ 175   1      #if (UserConfig_Enable_ZDP_UserDescriptor)
+                      AppUserDescriptor[0] = 'M';
+                      AppUserDescriptor[1] = 'G';
+                      AppUserDescriptor[2] = '2';
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 4   
+
+                      AppUserDescriptor[3] = '4';
+                      AppUserDescriptor[4] = '5';
+                      AppUserDescriptor[5] = 'X';
+                      AppUserDescriptor[6] = '-';
+                      AppUserDescriptor[7] = 'Z';
+                      AppUserDescriptor[8] = 'i';
+                      AppUserDescriptor[9] = 'g';
+                      AppUserDescriptor[10] = 'B';
+                      AppUserDescriptor[11] = 'e';
+                      AppUserDescriptor[12] = 'e';
+                      AppUserDescriptor[13] = 'P';
+                      AppUserDescriptor[14] = 'R';
+                      AppUserDescriptor[15] = 'O';    
+              #endif
+ 193   1      }
+ 194          
+ 195                  extern  void ZSYS_SET_UserTimer(UINT8 TimerNum, UINT16 TickCount);
+ 196                  extern  UINT16 ZSYS_GET_UserTimer(UINT8 TimerNum);
+ 197          
+ 198          /***********************************************************************************
+ 199           *
+ 200           *      NAME            : ZUSER_HW_INIT()
+ 201           *
+ 202           *      DESCRIPTION     : Callback function called by the stack in boot-up sequence.
+ 203           *              The main() function of the stack is as follows.
+ 204           *                      void main()             // main() function of the stack
+ 205           *                      {
+ 206           *                              ZUSER_HW_INIT();
+ 207           *                              // Functions to enable interrupts(TIMER0, TIMER2)
+ 208           *                              // Functions to initialize the modem of MG245X
+ 209           *                              ZNWK_RESET_REQ();
+ 210           *                              ZUSER_INIT();
+ 211           *                              while(1)
+ 212           *                              {
+ 213           *                                      ...
+ 214           *                                      ZUSER_MAIN();
+ 215           *                                      ...
+ 216           *                              }
+ 217           *                      }
+ 218           *              In this function, the operating frequency of MG245X can be changed to 16MHz.
+ 219           *
+ 220           *      PARAMETER       : None
+ 221           *
+ 222           *      RETURN          : None
+ 223           *
+ 224           *      NOTES           : None
+ 225           *      
+ 226           ***********************************************************************************/   
+ 227          void ZUSER_HW_INIT()
+ 228          {
+ 229   1              #if (OPERATE_AT_16MHz)
+                              ZHAL_CLOCK_16MHz_SET(1);
+                      #endif
+ 232   1      }
+ 233          
+ 234          /***********************************************************************************
+ 235           *
+ 236           *      NAME            : ZUSER_INIT()
+ 237           *
+ 238           *      DESCRIPTION     : Callback function called by the stack in boot-up sequence.
+ 239           *              The main() function of the stack is as follows.
+ 240           *                      void main()             // main() function of the stack
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 5   
+
+ 241           *                      {
+ 242           *                              ZUSER_HW_INIT();
+ 243           *                              // Functions to enable interrupts(TIMER0, TIMER2)
+ 244           *                              // Functions to initialize the modem of MG245X
+ 245           *                              ZNWK_RESET_REQ();
+ 246           *                              ZUSER_INIT();
+ 247           *                              while(1)
+ 248           *                              {
+ 249           *                                      ...
+ 250           *                                      ZUSER_MAIN();
+ 251           *                                      ...
+ 252           *                              }
+ 253           *                      }
+ 254           *              In this function, applicaiton initializing is done as follows.
+ 255           *                      + Initialize peripherals(e.g. LCD, GPIO, TIMER, UART, ...)
+ 256           *                      + Read HIB and set the IEEE address of the device.
+ 257           *                      + Read FLASH, if needed
+ 258           *                      + Initialize random generator and some stack variables
+ 259           *
+ 260           *      PARAMETER       : None
+ 261           *
+ 262           *      RETURN          : None
+ 263           *
+ 264           *      NOTES           : None
+ 265           *      
+ 266           ***********************************************************************************/
+ 267          UINT8     ScanIn;
+ 268          void ZUSER_INIT()
+ 269          {       
+ 270   1              UINT16  RandomSeed;
+ 271   1              UINT8   KeyIn,i;
+ 272   1              UINT8  u8UsrBuf[20];
+ 273   1              bit     initChannel=0;
+ 274   1      
+ 275   1              // Interrupt Enable/Disable
+ 276   1              ZHAL_UART0_SET(1, 1, 57600, 0x80);
+ 277   1              ZHAL_UART1_SET(1, 1, 57600, 0x80);
+ 278   1              ZHAL_TIMER1_SET(1, 0, 1, AppOption_TIMER1_ms);
+ 279   1              ZHAL_EXT0_INT_SET(1, 0, 1);
+ 280   1              ZHAL_EXT1_INT_SET(1, 0, 1);
+ 281   1      
+ 282   1              sendBuf_clean();
+ 283   1              
+ 284   1              // Initialize GPIO to use
+ 285   1              #if (AppOption_BoardVersion == 0x11)
+                              ZHAL_PORT3_INOUT_SET(4, 1);     GP34 = 0;
+                              ZHAL_PORT3_INOUT_SET(5, 1);     GP35 = 0;
+                              ZHAL_PORT3_INOUT_SET(6, 1);     GP36 = 0;
+                              ZHAL_PORT3_INOUT_SET(7, 1);     GP37 = 0;
+                      #else
+ 291   1                      ZHAL_PORT0_INOUT_SET(0, 1);     GP00 = 0;
+ 292   1                      ZHAL_PORT0_INOUT_SET(1, 1);     GP00 = 0;
+ 293   1                      ZHAL_PORT0_INOUT_SET(2, 1);     GP00 = 0;
+ 294   1                      ZHAL_PORT0_INOUT_SET(3, 1);     GP00 = 0;
+ 295   1              #endif
+ 296   1              //---------------------------------------------------------------
+ 297   1      
+ 298   1              // Initialize ZDO Descriptor for the application
+ 299   1              Initialize_ZDO_Descriptor();
+ 300   1      
+ 301   1              // Initialize ZCL Attribute for the application 
+ 302   1              // Skip : This application does not have Attribute
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 6   
+
+ 303   1              
+ 304   1              // Get HIB Information to be used
+ 305   1              for(i=0;i<MAX_END_NUM;i++)
+ 306   1              {
+ 307   2                      tabMyNetAddr[i][0]=0x00;
+ 308   2                      tabMyNetAddr[i][1]=0x00;
+ 309   2                      tabZbNetAddr[i]=0x0000;
+ 310   2                      cntLifeNetAddr[i]=5;
+ 311   2              }
+ 312   1              zPrintf(1, "\n HIB_COPY");
+ 313   1              if(ZSYS_HIB_COPY( (UINT8 *)&DATA_COPY.DataHIB))
+ 314   1              {
+ 315   2                      zPrintf(1, " ==> OK");          
+ 316   2                      memcpy(MPIB.IEEE_ExtendAddr, DATA_COPY.DataHIB.IEEE_ADDR, 8);
+ 317   2                      ZHAL_IEEE_ADDR_SET(MPIB.IEEE_ExtendAddr);
+ 318   2                      //ZSYS_SET_CHANNEL(DATA_COPY.DataHIB.Channel);
+ 319   2                      //UserChanList = 1;
+ 320   2                      //UserChanList <<= DATA_COPY.DataHIB.Channel;
+ 321   2                      while(!initChannel)               //ÉèÖÃ¹¤×÷ÆµÂÊÓë±¾»úµØÖ·
+ 322   2                      {
+ 323   3                              u8UsrBuf[0]=0x08;
+ 324   3                        u8UsrBuf[1]=0x00;
+ 325   3                        u8UsrBuf[2]=0x00;
+ 326   3                        u8UsrBuf[3]=0x00;
+ 327   3                        u8UsrBuf[4]=0x00;
+ 328   3                        u8UsrBuf[5]=0x00;
+ 329   3                        u8UsrBuf[6]=0x02;
+ 330   3                        u8UsrBuf[7]=0x00;
+ 331   3                        u8UsrBuf[8]=0xff;
+ 332   3                              for(i=0;i<=u8UsrBuf[0];i++)ZSYS_UART0_PUT(u8UsrBuf[i]);
+ 333   3                              ZSYS_SET_UserTimer(0, (1000/ AppOption_TIMER1_ms));  //ÑÓ³Ù1000ms
+ 334   3                              while(ZSYS_GET_UserTimer(0))
+ 335   3                              {
+ 336   4                                      if(ZSYS_UART0_RXLEN())break;
+ 337   4                              }
+ 338   3                              if(ZSYS_GET_UserTimer(0))    //1000msÄÚ´®¿ÚÓÐÊý¾Ý
+ 339   3                              {
+ 340   4                                      ZSYS_SET_UserTimer(0, (50/ AppOption_TIMER1_ms));  //ÑÓ³Ù50ms
+ 341   4                                while(ZSYS_GET_UserTimer(0))
+ 342   4                                      KeyIn=ZSYS_UART0_RXLEN();
+ 343   4                                      for(i=0;i<KeyIn;i++)ZSYS_UART0_GET(&u8UsrBuf[i]);
+ 344   4                                      if((u8UsrBuf[0]==KeyIn-1)&&(u8UsrBuf[1]==0x01)&&(u8UsrBuf[6]==0x02)&&(u8UsrBuf[7]>=0x0b)&&(u8UsrBuf[7]
+             -<=0x1a)&&(u8UsrBuf[12]==0xff))
+ 345   4                                      {
+ 346   5                                              initChannel=1;
+ 347   5                                              ScanIn=u8UsrBuf[7];
+ 348   5                                              ZSYS_SET_CHANNEL(ScanIn);
+ 349   5                                              UserChanList = 1;
+ 350   5                                              UserChanList <<=ScanIn;
+ 351   5                                }
+ 352   4                              }
+ 353   3                      }
+ 354   2              }
+ 355   1              // Recall saved data from FLASH, if needed.
+ 356   1              #if (AppOption_Enable_FlashFunc && AppOption_Enable_FlashRecall)        
+                              if( (HIB.Space[0x10] == 'C') || (HIB.Space[0x10] == 'R') || (HIB.Space[0x10] == 'E') )
+                              {
+                                      ZSYS_DATA_RECALL();
+                              }
+                      #endif
+ 362   1      
+ 363   1              // Initialize Random Generator. And, Initialize Each layer's Sequence Number Randomly.
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 7   
+
+ 364   1              //RandomSeed = ZSYS_ADC_GET(6);
+ 365   1              ZSYS_RANDOM_GEN_SEED(RandomSeed);
+ 366   1              AIB.DSN = ZSYS_RANDOM_GEN_GET(0x00FF);
+ 367   1              NIB.nwkDSN = ZSYS_RANDOM_GEN_GET(0x00FF);
+ 368   1              MPIB.macDSN = ZSYS_RANDOM_GEN_GET(0x00FF);
+ 369   1              NIB.RREQNum = ZSYS_RANDOM_GEN_GET(0x00FF);
+ 370   1              // Random Delay
+ 371   1              ZSYS_SET_UserTimer(0, ZSYS_RANDOM_GEN_GET(0x000F));
+ 372   1              while(ZSYS_GET_UserTimer(0));
+ 373   1              zPrintf(1, "\n ZC Application Start ...");
+ 374   1              ZSYS_SET_UserTimer(2, 2000);    //10Ãë×Ô¶¯Ë¢ÐÂÒ»´ÎµØÖ·ÉúÃüÆÚ
+ 375   1      }
+ 376          
+ 377          ////////////////////////////////////////////////////////////////////////////////////
+ 378          ////////////////////////////////////////////////////////////////////////////////////
+ 379          ////////////////////////////////////////////////////////////////////////////////////
+ 380                  extern  UINT8   INT_EXT0;
+ 381                  extern  UINT8   INT_EXT1;
+ 382          
+ 383                  UINT8   FormationState = 0;
+ 384                  UINT8   ReceiveOTAPacket = 0;
+ 385                  UINT16  DestinationNwkAddr = 0x0000;
+ 386                  
+ 387          /***********************************************************************************
+ 388           *      NAME            : ZUSER_MAIN()
+ 389           *      DESCRIPTION     : Callback function called by the stack. 
+ 390           ***********************************************************************************/
+ 391          bit flag_delay50ms=0;
+ 392          void ZUSER_MAIN()
+ 393          {
+ 394   1              UINT8   KeyIn;
+ 395   1              UINT8 u8UsrBuf[128];
+ 396   1              //UINT16        ScanIn;
+ 397   1              UINT16  MenuCommand;
+ 398   1              unsigned int bufindex;
+ 399   1              //ATTRIBUTE_U8  LightOnOff;
+ 400   1              //ATTRIBUTE_U8  CommCtrl;
+ 401   1              UINT32  ChannelMask;
+ 402   1              UINT8   NewChannel;
+ 403   1              UINT8   STA;
+ 404   1              UINT8 i;
+ 405   1      
+ 406   1              if(!ZSYS_GET_UserTimer(4))      /** ²éÊ±¼ä¼ä¸ô£¬ÊÇ·ñ¿ÉÒÔÏò´®¿Ú·¢Êý¾Ý **/
+ 407   1              {
+ 408   2                      bufindex = findBusyIndex();
+ 409   2                      for(i = 0; i < SendDataBuf[bufindex][1]; i++)ZSYS_UART0_PUT(SendDataBuf[bufindex][i + 2]);
+ 410   2                      setIndexEmpty(bufindex);
+ 411   2                      
+ 412   2                      ZSYS_SET_UserTimer(4, (80/AppOption_TIMER1_ms));        /** ×îÉÙ50msÑÓÊ±£¬±£ÏÕÆð¼û, ÉèÎª70ms **/
+ 413   2              }
+ 414   1              if(NIB.UpdateReport)
+ 415   1              {
+ 416   2                      //-- UpdateReport       : If following NIB is changed, corresponding bit is set to 1
+ 417   2                      //      bit[15] : reserved
+ 418   2                      //      bit[14] : A RT Entry is deleted.
+ 419   2                      //      bit[13] : A NT Entry is deleted.
+ 420   2                      //      bit[12] : A NAM Entry is deleted.
+ 421   2                      //      bit[11] : reserved
+ 422   2                      //      bit[10] : RT(Routing Table) Entry is added or changed.
+ 423   2                      //      bit[9]  : NT(Neighbor Table) Entry is added or changed.
+ 424   2                      //      bit[8]  : NAM(Network Address Map Table) Entry is added or changed.
+ 425   2                      //      bit[7:5]        : reserved
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 8   
+
+ 426   2                      //      bit[4]  : Link Status Command is transmitted.
+ 427   2                      //      bit[3]  : reserved
+ 428   2                      //      bit[2]  : PPIB.phyCurrentChannel
+ 429   2                      //      bit[1]  : NIB.nwkNetworkAddr;
+ 430   2                      //      bit[0]  : DEVTYPE
+ 431   2                      NIB.UpdateReport = 0;
+ 432   2              }
+ 433   1              if(FormationState == 0)
+ 434   1              {
+ 435   2                      zPrintf(1, "\n");
+ 436   2                      zPrintf(1, "\n [ZC] NWK-RESET");
+ 437   2                      APS2NWK.RESET_REQ.WarmStart = 0;
+ 438   2                      ZNWK_RESET_REQ(&APS2NWK.RESET_REQ, &NWK2APS.RESET_CON);
+ 439   2                      zPrintf(1, " =>STA=%02x",(short)NWK2APS.RESET_CON.Sta);
+ 440   2                      if(NWK2APS.RESET_CON.Sta != nSTA_SUCCESS)       return;
+ 441   2      
+ 442   2                      zPrintf(1, "\n [ZC] NWK-NET-FORM");
+ 443   2                      APS2NWK.NET_FORM_REQ.BattExtend = 0;
+ 444   2                      APS2NWK.NET_FORM_REQ.BO = UserConfig_BO;
+ 445   2                      APS2NWK.NET_FORM_REQ.ScanChan = UserChanList;
+ 446   2                      APS2NWK.NET_FORM_REQ.ScanDur = 0x04;
+ 447   2                      APS2NWK.NET_FORM_REQ.SO = UserConfig_SO;
+ 448   2                      ZNWK_NET_FORM_REQ(&APS2NWK.NET_FORM_REQ, &NWK2APS.NET_FORM_CON);
+ 449   2                      zPrintf(1, " =>STA=%02x",(short)NWK2APS.NET_FORM_CON.Sta);
+ 450   2                      if(NWK2APS.NET_FORM_CON.Sta != nSTA_SUCCESS)    return;
+ 451   2      
+ 452   2                      zPrintf(1, "\n [ZC] NWK-PERMIT-JOIN");
+ 453   2                      APS2NWK.PERMIT_JOIN_REQ.PermitDur = UserConfig_PermitDuration;
+ 454   2                      ZNWK_PERMIT_JOIN_REQ(&APS2NWK.PERMIT_JOIN_REQ, &NWK2APS.PERMIT_JOIN_CON);
+ 455   2                      zPrintf(1, " =>STA=%02x",(short)NWK2APS.PERMIT_JOIN_CON.Sta);           
+ 456   2                      if(NWK2APS.PERMIT_JOIN_CON.Sta != nSTA_SUCCESS) return;
+ 457   2      
+ 458   2                      Display_MyInfo();               
+ 459   2                      FormationState = 1;
+ 460   2              }
+ 461   1              MenuCommand = 0;
+ 462   1              if(ZSYS_UART1_GET(&KeyIn))
+ 463   1              {
+ 464   2                      KeyIn = toupper(KeyIn);
+ 465   2                      if(KeyIn == '0')                Display_MyInfo();
+ 466   2                      else if(KeyIn == 'N')   { zPrintf(1, "\n Neighbor Table =>");   Display_NT(1);  }
+ 467   2                      else if(KeyIn == 'R')   { zPrintf(1, "\n Routing Table =>");    Display_RT(0);  }
+ 468   2                      else if(KeyIn == 'A')   { zPrintf(1, "\n Addr Map Table =>");   Display_NAM(0); }
+ 469   2                      else if(KeyIn == 'G')   { zPrintf(1, "\n GroupID Table =>");    Display_GT(0);  }
+ 470   2                      else if(KeyIn == 'M')
+ 471   2                      {
+ 472   3                              zPrintf(1, "\n Input Menu : 0x");
+ 473   3                              zScanf(1, &MenuCommand);
+ 474   3                              zPrintf(1, " =>OK");                    
+ 475   3                      }
+ 476   2              }
+ 477   1              switch(MenuCommand)
+ 478   1              {
+ 479   2                      case 0x1000     :
+ 480   2                              zPrintf(1, "\n ZDP : Mgmt_Nwk_Update_Req(Update Channel)");
+ 481   2                              // New channel is (Current Channel + 1)
+ 482   2                              NewChannel = ZSYS_GET_CHANNEL() + 1;
+ 483   2                              if(NewChannel > 26)     NewChannel = 11;
+ 484   2                              ChannelMask = 1;
+ 485   2                              ChannelMask <<= NewChannel;
+ 486   2                              //----------------------------------------------                        
+ 487   2                              // Construct ASDU : Using ZDP Structure
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 9   
+
+ 488   2                              //----------------------------------------------                        
+ 489   2                      //      APP_ASDU.ZDP.Seq = ++APP_DSN;
+ 490   2                      //      APP_ASDU.ZDP.Msg.Mgmt_NwkUpdate_Req.ChanMask = ChannelMask;
+ 491   2                      //      Swap_Buffer_4B( (UINT8 *)&APP_ASDU.ZDP.Msg.Mgmt_NwkUpdate_Req.ChanMask, 0);
+ 492   2                      //      APP_ASDU.ZDP.Msg.Mgmt_NwkUpdate_Req.ScanDur = 0xFE;
+ 493   2                      //      APP_ASDU.Buff[6] = ++NIB.nwkUpdateId
+ 494   2      
+ 495   2                              //----------------------------------------------                        
+ 496   2                              // Construct ASDU : Write to ASDU Buffer directly(Not Using ZDP Structure).
+ 497   2                              //----------------------------------------------                        
+ 498   2                              NewChannel = ZSYS_GET_CHANNEL() + 1;
+ 499   2                              if(NewChannel > 26)     NewChannel = 11;
+ 500   2                              ChannelMask = 1;
+ 501   2                              ChannelMask <<= NewChannel;
+ 502   2                              APP_ASDU.Buff[0] = ++APP_DSN;   // ScanChannel
+ 503   2                              APP_ASDU.Buff[1] = ChannelMask; ChannelMask >>= 8;
+ 504   2                              APP_ASDU.Buff[2] = ChannelMask; ChannelMask >>= 8;
+ 505   2                              APP_ASDU.Buff[3] = ChannelMask; ChannelMask >>= 8;
+ 506   2                              APP_ASDU.Buff[4] = ChannelMask;
+ 507   2                              APP_ASDU.Buff[5] = 0xFE;                // ScanDur
+ 508   2                              APP_ASDU.Buff[6] = ++NIB.nwkUpdateId;           // nwkUpdateId is incremented
+ 509   2      
+ 510   2                              // Send ZDP Command
+ 511   2                              APP2APS.DATA_REQ.DstMode = 2;
+ 512   2                              APP2APS.DATA_REQ.DstAdd_U.Short = nBROAD_RXON;  // Broadcast or Unicast
+ 513   2                              APP2APS.DATA_REQ.DstEP = EndpointZDO;
+ 514   2                              APP2APS.DATA_REQ.ProfileID = ProfileZDP;
+ 515   2                              APP2APS.DATA_REQ.ClusID = aCID_Mgmt_Nwk_Update_Req;
+ 516   2                              APP2APS.DATA_REQ.SrcEP = EndpointZDO;                                           
+ 517   2                              APP2APS.DATA_REQ.asduLen = 7;                   
+ 518   2                              APP2APS.DATA_REQ.TxOption = 0;                  
+ 519   2                              APP2APS.DATA_REQ.Radius = NIB.nwkMaxDepth << 1;                 
+ 520   2                              APP2APS.DATA_REQ.pasdu = APP_ASDU.Buff;
+ 521   2                              ZAPS_DATA_REQ(&APP2APS.DATA_REQ, &APS2APP.DATA_CON);
+ 522   2                              STA = APS2APP.DATA_CON.Sta;
+ 523   2                              zPrintf(1, " => STA=%02x",(short)STA);
+ 524   2                              // After nwkNetBroadDeliverTime, the channel will be updated automatically by stack.
+ 525   2                              if(STA == aSTA_SUCCESS)
+ 526   2                              {
+ 527   3                                      NIB.UpdateChan = NewChannel;
+ 528   3                                      ZSYS_SET_Q_TIMER(VirtualTimer_UpdateChan, NIB.nwkNetBroadDeliverTime, TIMER3_UNIT);
+ 529   3                              }
+ 530   2                              break;  
+ 531   2                      case 0xF000 :
+ 532   2                              zPrintf(1, "\n Input Dst NwkAddr : 0x");
+ 533   2                              zScanf(1, &DestinationNwkAddr);
+ 534   2                              zPrintf(1, " => OK");
+ 535   2                              break;
+ 536   2              }
+ 537   1              KeyIn=ZSYS_UART0_RXLEN();
+ 538   1              if((KeyIn>0)&&(flag_delay50ms!=1))
+ 539   1              {
+ 540   2                      ZSYS_SET_UserTimer(0, (50/ AppOption_TIMER1_ms));  //ÑÓ³Ù50ms
+ 541   2                      flag_delay50ms=1;
+ 542   2              }
+ 543   1              if((flag_delay50ms==1)&&(ZSYS_GET_UserTimer(0) == 0))
+ 544   1              {
+ 545   2                      for(i=0;i<KeyIn;i++)
+ 546   2                      {
+ 547   3                              ZSYS_UART0_GET(&u8UsrBuf[i]);
+ 548   3                              ZSYS_UART1_PUT(u8UsrBuf[i]);    /** ½«´®¿Ú0Êý¾Ý·¢¸ø´®¿Ú1£¬ÓÃÓÚµ÷ÊÔ **/
+ 549   3                      }
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 10  
+
+ 550   2                      if((u8UsrBuf[0]==(KeyIn-1))&&(u8UsrBuf[KeyIn-1]==0xFF)) //¼ì²éÊý¾Ý³¤¶ÈÊÇ·ñÕýÈ·½áÊø±êÖ¾ÊÇ·ñÕýÈ·
+ 551   2                      {
+ 552   3                              if((u8UsrBuf[1]==0x02)||(u8UsrBuf[1]==0x03))          //Êý¾ÝÖ¡»òÕßÊý¾ÝÈ·ÈÏÖ¡
+ 553   3                              {
+ 554   4                                      for(i=0;i<MAX_END_NUM;i++)
+ 555   4                                      {
+ 556   5                                              if((tabMyNetAddr[i][0]==u8UsrBuf[4])&&(tabMyNetAddr[i][1]==u8UsrBuf[5]))
+ 557   5                                              ZSYS_SEND_OOB_PACKET(1, tabZbNetAddr[i], KeyIn, u8UsrBuf);
+ 558   5                                      }
+ 559   4                              }
+ 560   3                              if(u8UsrBuf[1]==0x00)                           //¿ØÖÆÖ¡
+ 561   3                              {
+ 562   4                                      
+ 563   4                              }
+ 564   3                      }
+ 565   2                      flag_delay50ms=0;
+ 566   2              }
+ 567   1              if(ZSYS_GET_UserTimer(2)==0)
+ 568   1              {
+ 569   2                      ZSYS_SET_UserTimer(2, 2000);    //20Ãë×Ô¶¯PingÐ­µ÷Æ÷Ò»´Î
+ 570   2                      for(i=0;i<MAX_END_NUM;i++)
+ 571   2                      {
+ 572   3                              cntLifeNetAddr[i]--;
+ 573   3                              if(cntLifeNetAddr[i]<1)
+ 574   3                              {
+ 575   4                                      tabMyNetAddr[i][0]=0x00;
+ 576   4                                      tabMyNetAddr[i][1]=0x00;
+ 577   4                                      tabZbNetAddr[i]=0x0000;
+ 578   4                                      cntLifeNetAddr[i]=1;
+ 579   4                              }
+ 580   3                      }
+ 581   2              }
+ 582   1      }
+ 583          
+ 584          #if (UserConfig_Enable_OTA)
+ 585          #include "C_USER/Z_USER_MNGT.c"
+ 586          #endif
+ 587          
+ 588          /***********************************************************************************
+ 589           *
+ 590           *      NAME            : ZUSER_OOB_DATA_IND()
+ 591           *
+ 592           *      DESCRIPTION     : Callback function called by the stack when an OOB(Out-Of-Band) packet is received.
+ 593           *              An OOB packet is a MAC data packet. And, out of ZigBee specification.
+ 594           *              Routines to process the received OOB packet is implemented(e.g. OTA)
+ 595           *
+ 596           *      PARAMETER       : 
+ 597           *              pInd    - pointer to MAC OOB packet(MCPS_DATA_IND)
+ 598           *              OobIndex - OOB identifier(0x01 ~ 0x0E). 0=No OOB. 0x0F=OTA.
+ 599           *
+ 600           *      RETURN          : None
+ 601           *
+ 602           *      NOTES           : None
+ 603           *      
+ 604           ***********************************************************************************/
+ 605          
+ 606          
+ 607          void ZUSER_OOB_DATA_IND(MCPS_DATA_IND *pInd, UINT8 OobIndex)
+ 608          {
+ 609   1              UINT8 i;
+ 610   1              UINT8 uZnetRxBuf[8];
+ 611   1              bit flag_add_succ=0;
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 11  
+
+ 612   1              unsigned int bufindex;
+ 613   1              if(OobIndex==0x0f)  // OobIndex = 0x0f for OTA
+ 614   1              {
+ 615   2                      #if (UserConfig_Enable_OTA)
+ 616   2                      ReceiveOTAPacket = 1;
+ 617   2                      ZSYS_WDT_SET(5000);
+ 618   2                      ZUSER_OOB_MNGT_IND(pInd, OobIndex);     
+ 619   2                      #endif
+ 620   2              }
+ 621   1              else
+ 622   1              {
+ 623   2                      #if     0
+                              zPrintf(1, "\n");
+                              zPrintf(1, "\n [RX-USER-OOB] OOB=%02x",(short)OobIndex);
+                              zPrintf(1, "\n LEN = %02x, LQI = %02x",(short)pInd->msduLength,(short)pInd->msduLinkQuality);
+                              zPrintf(1, "\n - ShortAddr=%04x",(short)pInd->SrcAddr_U.Short);
+                              zPrintf(1, "\n - data = ");
+                              Display_Buffer(pInd->pmsdu, pInd->msduLength, 10);
+                              #endif
+ 631   2                      if(pInd->msduLength==3)       //3×Ö½ÚÎªEnd Ping  Coor
+ 632   2                      {
+ 633   3                              uZnetRxBuf[0]=pInd->pmsdu[0];
+ 634   3                              uZnetRxBuf[1]=pInd->pmsdu[1];
+ 635   3                              uZnetRxBuf[2]=pInd->pmsdu[2];
+ 636   3                              flag_add_succ=0;
+ 637   3                              ZSYS_SEND_OOB_PACKET(1,pInd->SrcAddr_U.Short,1,&uZnetRxBuf[2]);
+ 638   3                              for(i=0;i<MAX_END_NUM;i++)
+ 639   3                              {
+ 640   4                                      if((tabMyNetAddr[i][0]==uZnetRxBuf[0])&&(tabMyNetAddr[i][1]==uZnetRxBuf[1]))
+ 641   4                                      {
+ 642   5                                              tabZbNetAddr[i]=pInd->SrcAddr_U.Short;   //¸üÐÂ±í¸ñ
+ 643   5                                              cntLifeNetAddr[i]++;
+ 644   5                                              if(cntLifeNetAddr[i]>=10)cntLifeNetAddr[i]=10;   //Ôö³¤ÉúÃüÆÚ
+ 645   5                                              flag_add_succ=1;
+ 646   5                                              break;
+ 647   5                                      }
+ 648   4                              }
+ 649   3                              if(i>=MAX_END_NUM)  //½ÓÊÕµ½µÄ²»ÔÚ±í¸ñÄÚ
+ 650   3                              {
+ 651   4                                      for(i=0;i<MAX_END_NUM;i++)
+ 652   4                                      {
+ 653   5                                              if((tabMyNetAddr[i][0]==0x00)&&(tabMyNetAddr[i][1]==0x00))break;
+ 654   5                                      }
+ 655   4                                      if(i>=MAX_END_NUM)flag_add_succ=0;                 //±í¸ñÒÑÂú
+ 656   4                                      else
+ 657   4                                      {
+ 658   5                                              tabMyNetAddr[i][0]=uZnetRxBuf[0];
+ 659   5                                              tabMyNetAddr[i][1]=uZnetRxBuf[1];
+ 660   5                                              tabZbNetAddr[i]=pInd->SrcAddr_U.Short;   //¸üÐÂ±í¸ñ
+ 661   5                                              cntLifeNetAddr[i]++;
+ 662   5                                              if(cntLifeNetAddr[i]>=10)cntLifeNetAddr[i]=10;   //Ôö³¤ÉúÃüÆÚ
+ 663   5                                              flag_add_succ=1;
+ 664   5                                      }
+ 665   4                              }
+ 666   3                              if(flag_add_succ)ZSYS_SEND_OOB_PACKET(1,pInd->SrcAddr_U.Short,1,&uZnetRxBuf[2]);
+ 667   3                      }
+ 668   2                      else
+ 669   2                      {
+ 670   3                              #if     1
+ 671   3                              bufindex = findEmptyIndex_Interrupt();
+ 672   3                              SendDataBuf[bufindex][1] = pInd->msduLength;
+ 673   3                              for(i = 0;i < pInd->msduLength; i++)SendDataBuf[bufindex][i + 2] = pInd->pmsdu[i];
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 12  
+
+ 674   3                              #else
+                                      for(i=0;i<pInd->msduLength;i++)ZSYS_UART0_PUT(pInd->pmsdu[i]);  /** ·¢¸ø´®¿Ú0£¬51mcuÊÕµ½ºóÍ¨¹ýcanbus·¢¸
+             -ø·þÎñÆ÷ **/
+                                      #endif
+ 677   3      
+ 678   3                              //for(i=0;i<pInd->msduLength;i++)ZSYS_UART1_PUT(pInd->pmsdu[i]);        /** ·¢¸ø´®¿Ú1£¬ÓÃÓÚµ÷ÊÔ **/
+ 679   3                      }
+ 680   2              }
+ 681   1      }
+ 682          
+ 683          
+ 684          /***********************************************************************************
+ 685           *
+ 686           *      NAME            : ZUSER_OOB_RF_ISR()
+ 687           *
+ 688           *      DESCRIPTION     : Callback function called by the stack when an OOB(Out-Of-Band) packet is received. 
+ 689           *              This function is similar to ZUSER_OOB_DATA_IND(). The difference is that the
+ 690           *              received packet is processed quickly because this is called directly by RF Interrupt 
+ 691           *              Service Routine(ISR). This is needed for high performance data(e.g. voice data)
+ 692           *
+ 693           *      PARAMETER       : 
+ 694           *              OobCode - OOB identifier(0x01 ~ 0x0E). 0=No OOB. 0x0F=OTA.
+ 695           *              FifoQ - Where the received packet is included.
+ 696           *                      + 0=Low MAC RXFIFO. xMRxFIFO(0x00~0x7F)
+ 697           *                      + 1=High MAC RXFIFO. xMRxFIFO(0x80~0xFF)
+ 698           *              MsduRP - Index of MAC RXFIFO that indicates the starting index of payload.
+ 699           *                      + (e.g.)
+ 700           *                      + FifoQ=0 and MsduRP=0x10 --> 1st payload is in xMRxFIFO(0x00+0x10)
+ 701           *                      + FifoQ=1 and MsduRP=0x20 --> 1st payload is in xMRxFIFO(0x80+0x20)
+ 702           *
+ 703           *      RETURN          : whether the received packet is processed in this function
+ 704           *              1 - processed. ZUSER_OOB_DATA_IND() is not called for the packet.
+ 705           *              0 - Not processed. ZUSER_OOB_DATA_IND() is called for the packet.
+ 706           *
+ 707           *      NOTES           : None
+ 708           *      
+ 709           ***********************************************************************************/
+ 710          UINT8 ZUSER_OOB_RF_ISR(UINT8 OobCode, UINT8 FifoQ, UINT8 MsduRP)
+ 711          {       
+ 712   1              OobCode = OobCode;
+ 713   1              FifoQ = FifoQ;
+ 714   1              MsduRP = MsduRP;
+ 715   1              return  0;
+ 716   1      }
+ 717          
+ 718          ////////////////////////////////////////////////////////////////////////////////////
+ 719          ////////////////////////////////////////////////////////////////////////////////////
+ 720          ////////////////////////////////////////////////////////////////////////////////////
+ 721          
+ 722          /***********************************************************************************
+ 723           *
+ 724           *      NAME            : ZUSER_APS_DATA_IND()
+ 725           *
+ 726           *      DESCRIPTION     : Callback function called by the stack when an APS Data packet, whose
+ 727           *              destination Endpoint is not 0x00, is received.
+ 728           *
+ 729           *      PARAMETER       : pInd - pointer to APS Data packet(APSDE_DATA_ind)
+ 730           *
+ 731           *      RETURN          : None
+ 732           *
+ 733           *      NOTES           : If the destination Endpoint of the received packet is 0x00, 
+ 734           *              ZZDP_APS_DATA_IND() is called by the stack.
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 13  
+
+ 735           *      
+ 736           ***********************************************************************************/
+ 737          void ZUSER_APS_DATA_IND(APSDE_DATA_ind *pInd)
+ 738          {
+ 739   1              ATTRIBUTE_U16   CurrentAdc;
+ 740   1              ATTRIBUTE_Char  CommStr;
+ 741   1              ZCLS_HEAD               ZCL_HEAD;
+ 742   1              UINT8                   ZH_LEN;
+ 743   1              UINT8                   StringLen;
+ 744   1              UINT8                   i;
+ 745   1                      
+ 746   1              zPrintf(1, "\n\n ZUSER_APS_DATA_IND");  
+ 747   1              zPrintf(1, " Src=%04x",pInd->SrcAdd_U.Short);
+ 748   1              Display_Buffer(pInd->pasdu, pInd->asduLen, 16);
+ 749   1      
+ 750   1              if(pInd->ProfileID == ProfileHA)
+ 751   1              {
+ 752   2                      ZCL_HEAD.FC.All = pInd->pasdu[0];
+ 753   2                      if(ZCL_HEAD.FC.b.Manufact)
+ 754   2                      {
+ 755   3                              ZCL_HEAD.ManuCode = (pInd->pasdu[2] << 8) | pInd->pasdu[1];
+ 756   3                              ZCL_HEAD.SeqNum = pInd->pasdu[3];
+ 757   3                              ZCL_HEAD.CmdID = pInd->pasdu[4];
+ 758   3                              ZH_LEN = 5;             
+ 759   3                      }
+ 760   2                      else
+ 761   2                      {
+ 762   3                              ZCL_HEAD.SeqNum = pInd->pasdu[1];
+ 763   3                              ZCL_HEAD.CmdID = pInd->pasdu[2];
+ 764   3                              ZH_LEN = 3;
+ 765   3                      }
+ 766   2              
+ 767   2                      if(pInd->ClusID == ProfileHA_DevOnOffLight_ClusOnOff)
+ 768   2                      {
+ 769   3                      }
+ 770   2                      else if(pInd->ClusID == ProfileHA_DevSensorADC_ClusCurrentADC)
+ 771   2                      {
+ 772   3                              if(ZCL_HEAD.CmdID == ZCL_CMD_REPORT)
+ 773   3                              {
+ 774   4                                      if(pInd->asduLen != (ZH_LEN + 5))
+ 775   4                                      {
+ 776   5                                              zPrintf(1, "\n ERROR : ASDU Length");
+ 777   5                                              return;
+ 778   5                                      }
+ 779   4      
+ 780   4                                      CurrentAdc.ID = (pInd->pasdu[ZH_LEN+1] << 8) | pInd->pasdu[ZH_LEN+0];
+ 781   4                                      CurrentAdc.DType = pInd->pasdu[ZH_LEN+2];
+ 782   4                                      CurrentAdc.Value = (pInd->pasdu[ZH_LEN+4] << 8) | pInd->pasdu[ZH_LEN+3];
+ 783   4      
+ 784   4                                      if(CurrentAdc.ID != ProfileHA_DevSensorADC_ClusCurrentADC_AttRead)
+ 785   4                                      {
+ 786   5                                              zPrintf(1, "\n ERROR : AttID");
+ 787   5                                              return;
+ 788   5                                      }
+ 789   4      
+ 790   4                                      if(CurrentAdc.DType != ProfileHA_DevSensorADC_ClusCurrentADC_AttRead_DTYPE)
+ 791   4                                      {
+ 792   5                                              zPrintf(1, "\n ERROR : DataType");
+ 793   5                                              return;                                 
+ 794   5                                      }
+ 795   4      
+ 796   4                                      zPrintf(1, "\n ClusterCurrentADC : Value = %04x",CurrentAdc.Value);
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 14  
+
+ 797   4                                      
+ 798   4                              }
+ 799   3                      }
+ 800   2                      else if(pInd->ClusID == ProfileHA_DevSerialComm_ClusComStr)
+ 801   2                      {
+ 802   3                              if(ZCL_HEAD.CmdID == ZCL_CMD_REPORT)
+ 803   3                              {
+ 804   4                                      CommStr.ID = (pInd->pasdu[ZH_LEN+1] << 8) | pInd->pasdu[ZH_LEN+0];
+ 805   4                                      CommStr.DType = pInd->pasdu[ZH_LEN+2];
+ 806   4                                      StringLen = pInd->pasdu[ZH_LEN+3];
+ 807   4                                      CommStr.pStr = &pInd->pasdu[ZH_LEN+4];
+ 808   4      
+ 809   4                                      if(CommStr.ID != ProfileHA_DevSerialComm_ClusComStr_AttContent)
+ 810   4                                      {
+ 811   5                                              zPrintf(1, "\n ERROR : AttID");
+ 812   5                                              return;
+ 813   5                                      }
+ 814   4      
+ 815   4                                      if(CommStr.DType != ProfileHA_DevSerialComm_ClusComStr_AttContent_DTYPE)
+ 816   4                                      {
+ 817   5                                              zPrintf(1, "\n ERROR : DataType");
+ 818   5                                              return;                                 
+ 819   5                                      }
+ 820   4      
+ 821   4                                      zPrintf(1, "\n String Len = 0x%02x => ",(short)StringLen);
+ 822   4                                      //for(i=0 ; i<StringLen ; i++)  ZSYS_UART1_PUT(CommStr.pStr[i]);
+ 823   4                              }                       
+ 824   3                      }
+ 825   2                      
+ 826   2                      
+ 827   2              }
+ 828   1              
+ 829   1      }
+*** WARNING C280 IN LINE 744 OF C_USER\APP_ZC\Z_USER_ZC.C: 'i': unreferenced local variable
+ 830          
+ 831          /***********************************************************************************
+ 832           *
+ 833           *      NAME            : ZUSER_APS_ACK_TX_IND()
+ 834           *
+ 835           *      DESCRIPTION     : Callback function called by the stack after transmitting an APS Ack packet.
+ 836           *              When an APS packet which requires APS Ack is received, the stack transmits an APS
+ 837           *              Ack packet
+ 838           *
+ 839           *      PARAMETER       : pAckSta - pointer to the status of transmitting(APSDME_ACK_Status)
+ 840           *
+ 841           *      RETURN          : None
+ 842           *
+ 843           *      NOTES           : None
+ 844           *      
+ 845           ***********************************************************************************/
+ 846          void ZUSER_APS_ACK_TX_IND(APSDME_ACK_Status *pAckSta)
+ 847          {
+ 848   1              zPrintf(1, "\n\n ZUSER_APS_ACK_SEND_STATUS");
+ 849   1              zPrintf(1, " :Sta=%02x",(short)pAckSta->SendStatus);
+ 850   1              zPrintf(1, " :DSN=%02x",(short)pAckSta->DSN);
+ 851   1              zPrintf(1, " :DstAddr=%04x",pAckSta->DstAddr);
+ 852   1      }
+ 853          
+ 854          /***********************************************************************************
+ 855           *
+ 856           *      NAME            : ZUSER_APS_ACK_RX_IND()
+ 857           *
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 15  
+
+ 858           *      DESCRIPTION     : Callback function called by the stack when an APS Ack packet is received
+ 859           *
+ 860           *      PARAMETER       : pAckSta - pointer to APS Ack packet(APSDME_ACK_ind)
+ 861           *
+ 862           *      RETURN          : None
+ 863           *
+ 864           *      NOTES           : None
+ 865           *      
+ 866           ***********************************************************************************/
+ 867          void ZUSER_APS_ACK_RX_IND(APSDME_ACK_ind *pInd)
+ 868          {
+ 869   1              zPrintf(1, "\n\n ZUSER_APS_ACK_IND");
+ 870   1              zPrintf(1, " :DSN=%02x",(short)pInd->DSN);      
+ 871   1              zPrintf(1, " :Clus=%04x",(short)pInd->ClusID);
+ 872   1              zPrintf(1, " :DstEP=%02x",(short)pInd->DstEP);
+ 873   1              zPrintf(1, " :ProfID=%04x",(short)pInd->ProfID);
+ 874   1              zPrintf(1, " :SrcEP=%02x",(short)pInd->SrcEP);
+ 875   1      }
+ 876          
+ 877          /***********************************************************************************
+ 878           *
+ 879           *      NAME            : ZUSER_APS_ESTABLISH_KEY_IND()
+ 880           *
+ 881           *      DESCRIPTION     : Callback function called by the stack when an APS SKKE Command
+ 882           *              (SKKE-1, SKKE-2, SKKE-3, SKKE-4) is received
+ 883           *
+ 884           *      PARAMETER       : pInd - pointer to APS SKKE Command(APSME_ESTABLISH_KEY_ind)
+ 885           *
+ 886           *      RETURN          : None
+ 887           *
+ 888           *      NOTES           : None
+ 889           *      
+ 890           ***********************************************************************************/
+ 891          void ZUSER_APS_ESTABLISH_KEY_IND(APSME_ESTABLISH_KEY_ind *pInd)
+ 892          {
+ 893   1              pInd = pInd;
+ 894   1              zPrintf(1, "\n\n ZUSER_APS_ESTABLISH_KEY_IND"); 
+ 895   1      }
+ 896          
+ 897          /***********************************************************************************
+ 898           *
+ 899           *      NAME            : ZUSER_APS_TRANSPORT_KEY_IND()
+ 900           *
+ 901           *      DESCRIPTION     : Callback function called by the stack when an APS TRANSPORT KEY Command
+ 902           *              is received
+ 903           *
+ 904           *      PARAMETER       : pInd - pointer to APS TRANSPORT KEY Command(APSME_TRANSPORT_KEY_ind)
+ 905           *
+ 906           *      RETURN          : None
+ 907           *
+ 908           *      NOTES           : None
+ 909           *      
+ 910           ***********************************************************************************/
+ 911          void ZUSER_APS_TRANSPORT_KEY_IND(APSME_TRANSPORT_KEY_ind *pInd)
+ 912          {
+ 913   1      #if defined __SECURED_WITH_PRECONFIGURED_NWK_KEY__ || defined __SECURED_WITHOUT_PRECONFIGURED_NWK_KEY__
+                      UINT8   NwkMaterialSetError;
+                      SS_NwkSecMaterial       _NwkSecMaterial;
+              #endif
+ 917   1      
+ 918   1              pInd = pInd;
+ 919   1              zPrintf(1, "\n\n ZUSER_APS_TRANSPORT_KEY_IND");
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 16  
+
+ 920   1      
+ 921   1      #if defined __SECURED_WITH_PRECONFIGURED_NWK_KEY__ || defined __SECURED_WITHOUT_PRECONFIGURED_NWK_KEY__
+                      if( (SIB.PreconfigMode == 1) || (SIB.PreconfigMode == 2) )
+                      {
+                              if(pInd->KeyType == aKT_StandNwk)
+                              {
+                                      zPrintf(1, " :KeyNum=%02x",(short)pInd->KeyData.NWK.KeySeqNum);
+              
+                                      NwkMaterialSetError = 0;
+                                      if(Check_16Byte_Null(pInd->KeyData.NWK.NwkKey))
+                                      {
+                                              // The received key is NULL.
+                                      }       
+                                      else
+                                      {                                       
+                                              _NwkSecMaterial.EnaSM = 1;
+                                              rpmemcpy(_NwkSecMaterial.Key, pInd->KeyData.NWK.NwkKey, 16);
+                                              _NwkSecMaterial.KeySeqNum = pInd->KeyData.NWK.KeySeqNum;
+                                              _NwkSecMaterial.KeyType = aKT_StandNwk;
+                                              memset(_NwkSecMaterial.OutFrameCnt, 0x00, 4);
+                                              if(ZSEC_SetNwkSecMaterial(&_NwkSecMaterial))
+                                              {
+                                                      zPrintf(1, "\n Material Set Err");
+                                                      NwkMaterialSetError = 1;
+                                              }
+                                      }
+              
+                                      if(NwkMaterialSetError == 0)
+                                      {
+                                              if(pInd->KeyData.NWK.KeySeqNum == 0)
+                                              {
+                                                      rpmemcpy(SIB.apsTrustCenIEEE, pInd->SrcIEEE, 8);
+              
+                                                      if(NIB.DEVTYPE == 'r')
+                                                      {                                               
+                                                              APS2NWK.START_ROU_REQ.BattExtend = 0;
+                                                              APS2NWK.START_ROU_REQ.BO = 15;
+                                                              APS2NWK.START_ROU_REQ.SO = 15;                          
+                                                              ZNWK_START_ROUTE_REQ(&APS2NWK.START_ROU_REQ, &NWK2APS.START_ROU_CON);
+              
+                                                              APS2NWK.PERMIT_JOIN_REQ.PermitDur = 0xFF;
+                                                              ZNWK_PERMIT_JOIN_REQ(&APS2NWK.PERMIT_JOIN_REQ, &NWK2APS.PERMIT_JOIN_CON);
+                                                      }
+                                                      ZSYS_SEND_DEVICE_ANNOUNCE();
+                                              }
+              
+                                              // In case of End Device, the active key number is changed after receiving a Transport Key Command
+                                              if(NIB.DEVTYPE == 'E')
+                                              {
+                                                      SIB.nwkActKeySeqNum = pInd->KeyData.NWK.KeySeqNum;
+                                              }
+                                              //
+                                      }
+                                      
+                              }
+                      }
+              #endif  
+ 977   1      
+ 978   1      }
+ 979          
+ 980          /***********************************************************************************
+ 981           *
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 17  
+
+ 982           *      NAME            : ZUSER_APS_REQUEST_KEY_IND()
+ 983           *
+ 984           *      DESCRIPTION     : Callback function called by the stack when an APS REQUEST KEY Command
+ 985           *              is received
+ 986           *
+ 987           *      PARAMETER       : pInd - pointer to APS REQUEST KEY Command(APSME_REQUEST_KEY_ind)
+ 988           *
+ 989           *      RETURN          : None
+ 990           *
+ 991           *      NOTES           : None
+ 992           *      
+ 993           ***********************************************************************************/
+ 994          void ZUSER_APS_REQUEST_KEY_IND(APSME_REQUEST_KEY_ind *pInd)
+ 995          {
+ 996   1              pInd = pInd;
+ 997   1              zPrintf(1, "\n\n ZUSER_APS_REQUEST_KEY_IND");
+ 998   1      }
+ 999          
+1000          /***********************************************************************************
+1001           *
+1002           *      NAME            : ZUSER_APS_SWITCH_KEY_IND()
+1003           *
+1004           *      DESCRIPTION     : Callback function called by the stack when an APS SWITCH KEY Command
+1005           *              is received
+1006           *
+1007           *      PARAMETER       : pInd - pointer to APS SWITCH KEY Command(APSME_SWITCH_KEY_ind)
+1008           *
+1009           *      RETURN          : None
+1010           *
+1011           *      NOTES           : None
+1012           *      
+1013           ***********************************************************************************/
+1014          void ZUSER_APS_SWITCH_KEY_IND(APSME_SWITCH_KEY_ind *pInd)
+1015          {
+1016   1              pInd = pInd;
+1017   1              zPrintf(1, "\n\n ZUSER_APS_SWITCH_KEY_IND");    
+1018   1      }
+1019          
+1020          /***********************************************************************************
+1021           *
+1022           *      NAME            : ZUSER_APS_UPDATE_DEVICE_IND()
+1023           *
+1024           *      DESCRIPTION     : Callback function called by the stack when an APS UPDATE DEVICE Command
+1025           *              is received
+1026           *
+1027           *      PARAMETER       : pInd - pointer to APS UPDATE DEVICE Command(APSME_UPDATE_DEV_ind)
+1028           *
+1029           *      RETURN          : None
+1030           *
+1031           *      NOTES           : None
+1032           *      
+1033           ***********************************************************************************/
+1034          void ZUSER_APS_UPDATE_DEVICE_IND(APSME_UPDATE_DEV_ind *pInd)
+1035          {
+1036   1      #if defined __SECURED_WITH_PRECONFIGURED_NWK_KEY__ || defined __SECURED_WITHOUT_PRECONFIGURED_NWK_KEY__
+                      UINT8   STA;
+              #endif
+1039   1      
+1040   1              pInd = pInd;
+1041   1              zPrintf(1, "\n\n ZUSER_APS_UPDATE_DEVICE_IND"); 
+1042   1      
+1043   1      #if defined __SECURED_WITH_PRECONFIGURED_NWK_KEY__ || defined __SECURED_WITHOUT_PRECONFIGURED_NWK_KEY__
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 18  
+
+                      if( (SIB.PreconfigMode == 1) || (SIB.PreconfigMode == 2) )
+                      {
+                              if(NIB.DEVTYPE == 'C')
+                              {
+                                      if(pInd->Status != 0x02)
+                                      {
+                                              if(ZSEC_FindNwkSecMaterial_WithKeySeq(SIB.nwkActKeySeqNum, 0x00))
+                                              {
+                                                      rpmemcpy(APP2APS.TRANS_KEY_REQ.DstIEEE, pInd->DevIEEE, 8);
+                                                      APP2APS.TRANS_KEY_REQ.KeyType = aKT_StandNwk;
+                                                      APP2APS.TRANS_KEY_REQ.KeyData.NWK.KeySeqNum = SIB.nwkActKeySeqNum;
+                                                      rpmemcpy(APP2APS.TRANS_KEY_REQ.KeyData.NWK.NwkKey, SIB.pnwkSecMaterial[NumNwkSecMat].Key, 16);
+                                                      if( (SIB.PreconfigMode == 1) && (SIB.nwkActKeySeqNum == 0) )
+                                                      {
+                                                              memset(APP2APS.TRANS_KEY_REQ.KeyData.NWK.NwkKey, 0x00, 16);             // Null Key
+                                                      }
+                                                      APP2APS.TRANS_KEY_REQ.KeyData.NWK.UseParent = 1;                                        
+                                                      rpmemcpy(APP2APS.TRANS_KEY_REQ.KeyData.NWK.ParentIEEE, pInd->SrcIEEE, 8);
+                                                      STA = ZAPS_TRANSPORT_KEY_REQ(&APP2APS.TRANS_KEY_REQ);
+                                                      zPrintf(1, "\n ZAPS_TRANSPORT_KEY_REQ.Sta=%02x",(short)STA);
+                                              }
+                                      }               
+                              }       
+                      }
+              #endif
+1069   1      
+1070   1      }
+1071          
+1072          /***********************************************************************************
+1073           *
+1074           *      NAME            : ZUSER_APS_REMOVE_DEVICE_IND()
+1075           *
+1076           *      DESCRIPTION     : Callback function called by the stack when an APS REMOVE DEVICE Command
+1077           *              is received
+1078           *
+1079           *      PARAMETER       : pInd - pointer to APS REMOVE DEVICE Command(APSME_REMOVE_DEVICE_ind)
+1080           *
+1081           *      RETURN          : None
+1082           *
+1083           *      NOTES           : None
+1084           *      
+1085           ***********************************************************************************/
+1086          void ZUSER_APS_REMOVE_DEVICE_IND(APSME_REMOVE_DEVICE_ind *pInd)
+1087          {
+1088   1              pInd = pInd;
+1089   1              zPrintf(1, "\n\n ZUSER_APS_REMOVE_DEVICE_IND");
+1090   1      }       
+1091          
+1092          ////////////////////////////////////////////////////////////////////////////////////
+1093          ////////////////////////////////////////////////////////////////////////////////////
+1094          ////////////////////////////////////////////////////////////////////////////////////
+1095          
+1096          /***********************************************************************************
+1097           *
+1098           *      NAME            : ZUSER_NWK_JOIN_IND()
+1099           *
+1100           *      DESCRIPTION     : Callback function called by the stack when a new device is joined successfully
+1101           *              by association or NWK rejoining.
+1102           *
+1103           *      PARAMETER       : pInd - pointer to NLME Join Indication(NLME_JOIN_ind)
+1104           *
+1105           *      RETURN          : None
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 19  
+
+1106           *
+1107           *      NOTES           : None
+1108           *      
+1109           ***********************************************************************************/
+1110          void ZUSER_NWK_JOIN_IND(NLME_JOIN_ind *pInd)
+1111          {
+1112   1      #if defined __SECURED_WITH_PRECONFIGURED_NWK_KEY__ || defined __SECURED_WITHOUT_PRECONFIGURED_NWK_KEY__
+                      UINT8   _ActKeyNum;
+                      UINT8   STA;
+                      UINT8   _SecureAllFrame;
+              #endif
+1117   1      
+1118   1              zPrintf(1, "\n ZUSER_NWK_JOIN_IND");
+1119   1              zPrintf(1, "\n - ShortAddr=%04x",(short)pInd->ShortAddr);
+1120   1              zPrintf(1, "\n - IEEE(0~7) : ");
+1121   1              Display_Buffer(pInd->ExtendAddr, 8, 0);
+1122   1              zPrintf(1, "\n - Capa=%02x",(short)pInd->CapaInfo);
+1123   1              zPrintf(1, "\n - Rejoin=%02x",(short)pInd->RejoinNwk);
+1124   1              zPrintf(1, "\n - Sec=%02x",(short)pInd->SecRejoin);
+1125   1      
+1126   1      #if defined __SECURED_WITH_PRECONFIGURED_NWK_KEY__ || defined __SECURED_WITHOUT_PRECONFIGURED_NWK_KEY__
+                      if( (SIB.PreconfigMode == 1) || (SIB.PreconfigMode == 2) )
+                      {
+                              if(NIB.DEVTYPE == 'C')
+                              {
+                                      if(pInd->RejoinNwk != 2)
+                                      {
+                                              if(SIB.PreconfigMode == 1)
+                                              {
+                                                      _ActKeyNum = SIB.nwkActKeySeqNum;
+                                                      SIB.nwkActKeySeqNum = 0;
+              
+                                                      rpmemcpy(APP2APS.TRANS_KEY_REQ.DstIEEE, pInd->ExtendAddr, 8);
+                                                      APP2APS.TRANS_KEY_REQ.KeyType = aKT_StandNwk;
+                                                      APP2APS.TRANS_KEY_REQ.KeyData.NWK.KeySeqNum = SIB.nwkActKeySeqNum;                                      
+                                                      memset(APP2APS.TRANS_KEY_REQ.KeyData.NWK.NwkKey, 0x00, 16);             // Null Key
+                                                      APP2APS.TRANS_KEY_REQ.KeyData.NWK.UseParent = 0;
+                                                      //APP2APS.TRANS_KEY_REQ.KeyData.NWK.ParentIEEE          // Not used
+                                                      STA = ZAPS_TRANSPORT_KEY_REQ(&APP2APS.TRANS_KEY_REQ);
+                                                      zPrintf(1, "\n TRANSPORT_KEY_REQ.Sta=%02x",(short)STA);
+              
+                                                      SIB.nwkActKeySeqNum = _ActKeyNum;
+                                              }
+                                              else            // if(SIB.PreconfigMode == 2)
+                                              {
+                                                      rpmemcpy(APP2APS.TRANS_KEY_REQ.DstIEEE, pInd->ExtendAddr, 8);
+                                                      APP2APS.TRANS_KEY_REQ.KeyType = aKT_StandNwk;
+                                                      APP2APS.TRANS_KEY_REQ.KeyData.NWK.KeySeqNum = SIB.nwkActKeySeqNum;                                      
+                                                      rpmemcpy(APP2APS.TRANS_KEY_REQ.KeyData.NWK.NwkKey, SIB.pnwkSecMaterial[NumNwkSecMat].Key, 16);
+                                                      APP2APS.TRANS_KEY_REQ.KeyData.NWK.UseParent = 0;
+                                                      //APP2APS.TRANS_KEY_REQ.KeyData.NWK.ParentIEEE          // Not used
+              
+                                                      _SecureAllFrame = SIB.nwkSecureAllFrame;
+                                                      SIB.nwkSecureAllFrame = 0;                                      // Prevent NWK Security
+                                                      STA = ZAPS_TRANSPORT_KEY_REQ(&APP2APS.TRANS_KEY_REQ);
+                                                      SIB.nwkSecureAllFrame = _SecureAllFrame;                // Prevent NWK Security                                 
+                                                      
+                                                      zPrintf(1, "\n TRANSPORT_KEY_REQ.Sta=%02x",(short)STA);
+                                              }
+                                      }                       
+                              }
+                              else                    // if(NIB.DEVTYPE == 'R')
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 20  
+
+                              {
+                                      if(pInd->RejoinNwk != 2)
+                                      {
+                                              rpmemcpy(APP2APS.UPDATE_DEV_REQ.DstIEEE, SIB.apsTrustCenIEEE, 8);
+                                              rpmemcpy(APP2APS.UPDATE_DEV_REQ.DevIEEE, pInd->ExtendAddr, 8);
+                                              APP2APS.UPDATE_DEV_REQ.Status = (pInd->SecRejoin)? 0x00 : 0x01;
+                                              APP2APS.UPDATE_DEV_REQ.DevShortAddr = pInd->ShortAddr;
+                                              STA = ZAPS_UPDATE_DEVICE_REQ(&APP2APS.UPDATE_DEV_REQ);
+                                              zPrintf(1, "\n UPDATE_KEY_REQ.Sta=%02x",(short)STA);
+                                      }
+                              }
+                      }
+              #endif  
+1181   1      }
+1182          
+1183          /***********************************************************************************
+1184           *
+1185           *      NAME            : ZUSER_NWK_LEAVE_IND()
+1186           *
+1187           *      DESCRIPTION     : Callback function called by the stack when a NWK LEAVE Command is 
+1188           *              received(A device is left from the network)
+1189           *
+1190           *      PARAMETER       : pInd - pointer to NLME Leave Indication(NLME_LEAVE_ind)
+1191           *
+1192           *      RETURN          : None
+1193           *
+1194           *      NOTES           : None
+1195           *      
+1196           ***********************************************************************************/
+1197          void ZUSER_NWK_LEAVE_IND(NLME_LEAVE_ind *pInd)
+1198          {
+1199   1              pInd = pInd;
+1200   1              zPrintf(1, "\n ZUSER_NWK_LEAVE_IND");
+1201   1      
+1202   1              //
+1203   1              // It is recommended that the information of a leaved device is deleted
+1204   1              //
+1205   1              if(Check_8Byte_Null(pInd->DevAddr))
+1206   1              {
+1207   2                      // I has been leaved.
+1208   2              }
+1209   1              else
+1210   1              {
+1211   2                      NWKLIB_DevMgmt_DeleteIEEEAddr(pInd->DevAddr);
+1212   2              }               
+1213   1      }
+1214          
+1215          /***********************************************************************************
+1216           *
+1217           *      NAME            : ZUSER_NWK_STATUS_IND()
+1218           *
+1219           *      DESCRIPTION     : Callback function called by the stack when a NWK STATUS Command is received
+1220           *              or NWK layer notifies the Application that there are changes in NWK layer.
+1221           *
+1222           *      PARAMETER       : pInd - pointer to NLME Status Indication(NLME_NWK_STATUS_ind)
+1223           *
+1224           *      RETURN          : None
+1225           *
+1226           *      NOTES           : None
+1227           *      
+1228           ***********************************************************************************/
+1229          void ZUSER_NWK_STATUS_IND(NLME_NWK_STATUS_ind *pInd)
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 21  
+
+1230          {
+1231   1              zPrintf(1, "\n\n ZUSER_NWK_STATUS_IND");
+1232   1              zPrintf(1, " -Sta=%02x",(short)pInd->Sta);
+1233   1              zPrintf(1, " -NwkAddr=%04x",pInd->NwkAddr);
+1234   1      
+1235   1              if( (pInd->Sta == nNwkStaCmd_TreeLinkFail)
+1236   1              || (pInd->Sta == nNwkStaCmd_NonTreeLinkFail) )
+1237   1              {
+1238   2                      #if (UserConfig_Capability & 0x02)              // FFD Library
+1239   2                      // The corresponding routing table can be deleted.
+1240   2                      NWKLIB_DeleteRT_UsedEntry(pInd->NwkAddr);
+1241   2                      #endif
+1242   2              }
+1243   1              else if(pInd->Sta == nNwkStaCmd_M2ORouteFail)
+1244   1              {
+1245   2                      // M2O Route Request can be retried
+1246   2              }
+1247   1              else if( (pInd->Sta == nNwkStaCmd_NoRoute)
+1248   1                      || (pInd->Sta == nNwkStaCmd_NoRouteCapa) )
+1249   1              {
+1250   2                      #if (UserConfig_Capability & 0x02)              // FFD Library
+1251   2                      // The corresponding routing table may be deleted.
+1252   2                      NWKLIB_DeleteRT_UsedEntry(pInd->NwkAddr);       
+1253   2                      #endif
+1254   2              }
+1255   1              else if(pInd->Sta == nNwkStaCmd_TargetUnavail)
+1256   1              {
+1257   2                      #if (UserConfig_Capability & 0x02)              // FFD Library  
+1258   2                      // The corresponding neighbor table may be deleted.
+1259   2                      NWKLIB_DevMgmt_DeleteNWKAddr(pInd->NwkAddr);
+1260   2                      // The corresponding routing table may be deleted.
+1261   2                      NWKLIB_DeleteRT_UsedEntry(pInd->NwkAddr);
+1262   2                      #endif
+1263   2              }
+1264   1              else if(pInd->Sta == nNwkStaCmd_NoIndirectCapa)
+1265   1              {
+1266   2                      // Parent device is failed to pending to it's ZED child device.
+1267   2              }
+1268   1              else if(pInd->Sta == nNwkStaCmd_IndirectExpire)
+1269   1              {
+1270   2                      // Indirect transmisstion is failed because ZED Child's polling is failed.
+1271   2              }
+1272   1      }
+1273          
+1274          /***********************************************************************************
+1275           *
+1276           *      NAME            : ZUSER_NWK_NwkAddrUpdate_IND()
+1277           *
+1278           *      DESCRIPTION     : Callback function called by the stack when a NWK STATUS Command is received
+1279           *              and the status code is 0x00(Network Address Update). 
+1280           *
+1281           *      PARAMETER       : pInd - pointer to NLME Status Indication(NLME_NWK_STATUS_ind)
+1282           *
+1283           *      RETURN          : None
+1284           *
+1285           *      NOTES           : None
+1286           *      
+1287           ***********************************************************************************/
+1288          void ZUSER_NWK_NwkAddrUpdate_IND(NLME_NWK_STATUS_ind *pInd)
+1289          {
+1290   1              UINT8   STA;
+1291   1              
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 22  
+
+1292   1              zPrintf(1, "\n\n ZUSER_NWK_NwkAddrUpdate_IND");
+1293   1              zPrintf(1, " -Sta=%02x",(short)pInd->Sta);
+1294   1              zPrintf(1, " -NwkAddr=%04x",pInd->NwkAddr);
+1295   1      
+1296   1              if(pInd->Sta == nNwkStaCmd_NwkAddrUpdate)
+1297   1              {
+1298   2                      // This means that my network address is changed for confliction or rejoining.
+1299   2                      // pInd->NwkAddr is the new address.            
+1300   2                      if( (NIB.DEVTYPE == 'R') || (NIB.DEVTYPE == 'E') )
+1301   2                      {
+1302   3                              //-----------------------------------------------------
+1303   3                              // NOTICE : This routine should not be modified
+1304   3                              //-----------------------------------------------------
+1305   3                              STA = ZSYS_SEND_DEVICE_ANNOUNCE();
+1306   3                              //-----------------------------------------------------
+1307   3      
+1308   3                              zPrintf(1, "\n NwkAddrUpdate");
+1309   3                              zPrintf(1, "\n Send Dev-Annce => STA=%02x",(short)STA);                 
+1310   3                      }               
+1311   2              }       
+1312   1      }
+1313          
+1314          ////////////////////////////////////////////////////////////////////////////////////
+1315          ////////////////////////////////////////////////////////////////////////////////////
+1316          ////////////////////////////////////////////////////////////////////////////////////
+1317          
+1318          /***********************************************************************************
+1319           *
+1320           *      NAME            : ZUSER_APS_CON()
+1321           *
+1322           *      DESCRIPTION     : Callback function called by the stack after transmitting a pended APS packet.
+1323           *              An APS packet is pended when there is no route to a destination and APS Queue is empty.
+1324           *
+1325           *      PARAMETER       : 
+1326           *              pAPS2APP - pointer to the status of transmitting. Only pAPS2APP->DATA_CON.Sta is valid.
+1327           *              Idx - 0=APS Data packet. 1=APS Command packet. 2=APS Ack packet.
+1328           *
+1329           *      RETURN          : None
+1330           *
+1331           *      NOTES           : None
+1332           *      
+1333           ***********************************************************************************/
+1334          void ZUSER_APS_CON(APSDME_CON_PKT *pAPS2APP, UINT8 Idx)
+1335          {
+1336   1              Idx = Idx;
+1337   1              pAPS2APP = pAPS2APP;
+1338   1              zPrintf(1, "\n ZUSER_APS_CON");
+1339   1      }
+1340          
+1341          /***********************************************************************************
+1342           *
+1343           *      NAME            : ZUSER_NWK_CON()
+1344           *
+1345           *      DESCRIPTION     : Callback function called by the stack after transmitting a pended ROUTE REQUEST
+1346           *              Command. 
+1347           *
+1348           *      PARAMETER       : 
+1349           *              pNWK2APS - pointer to the status of transmitting. Only pNWK2APS->ROU_DISC_CON.Sta is valid.
+1350           *              Idx - Index of NWK Pending
+1351           *                      + 0x80 = M2O ROUTE REQUEST Command was pended.
+1352           *                      + 0x81 = Multicast or Unicast ROUTE REQUEST Command was pended.
+1353           *
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 23  
+
+1354           *      RETURN          : None
+1355           *
+1356           *      NOTES           : None
+1357           *      
+1358           ***********************************************************************************/
+1359          void ZUSER_NWK_CON(NLDME_CON_PKT *pNWK2APS, UINT8 Idx)
+1360          {
+1361   1              Idx = Idx;
+1362   1              pNWK2APS = pNWK2APS;
+1363   1              zPrintf(1, "\n ZUSER_NWK_CON");
+1364   1      }
+1365          
+1366          ////////////////////////////////////////////////////////////////////////////////////
+1367          ////////////////////////////////////////////////////////////////////////////////////
+1368          ////////////////////////////////////////////////////////////////////////////////////
+1369           
+1370          /***********************************************************************************
+1371           *
+1372           *      NAME            : ZUSER_RESET_NIB()
+1373           *
+1374           *      DESCRIPTION     : Callback function called by the stack when ZNWK_RESET_REQ() is called.
+1375           *              The routines is as follows.
+1376           *                      ZNWK_RESET_REQ()
+1377           *                      {
+1378           *                              // Initializing NWK Layer
+1379           *                              ZSYS_ALLOCATE_MEMORY();
+1380           *                              ZNWK_RESET_NIB();
+1381           *                      }                       
+1382           *              In this function, NIB variables can be set to values other than defaults.
+1383           *
+1384           *      PARAMETER       : None
+1385           *
+1386           *      RETURN          : None
+1387           *
+1388           *      NOTES           : None
+1389           *      
+1390           ***********************************************************************************/
+1391          void ZUSER_RESET_NIB()
+1392          {
+1393   1              UINT8   UserEPID[8];
+1394   1      #if defined __SECURED_WITH_PRECONFIGURED_NWK_KEY__ || defined __SECURED_WITHOUT_PRECONFIGURED_NWK_KEY__
+                      SS_NwkSecMaterial       _NwkSecMaterial;
+              #endif  
+1397   1              
+1398   1              NIB.nwkCapaInfo = UserConfig_Capability;
+1399   1      
+1400   1              UserEPID[0] = UserConfig_EPID0;
+1401   1              UserEPID[1] = UserConfig_EPID1;
+1402   1              UserEPID[2] = UserConfig_EPID2;
+1403   1              UserEPID[3] = UserConfig_EPID3;
+1404   1              UserEPID[4] = UserConfig_EPID4;
+1405   1              UserEPID[5] = UserConfig_EPID5;
+1406   1              UserEPID[6] = UserConfig_EPID6;
+1407   1              UserEPID[7] = UserConfig_EPID7;
+1408   1              ZSYS_SET_EPID(UserEPID);
+1409   1      
+1410   1              NIB.nwkMaxDepth = UserConfig_MaxDepth;
+1411   1      
+1412   1              NIB.nwkMaxBroadcastRetry = UserConfig_MaxBroadcastRetry;
+1413   1              NIB.InitRREQRetry = UserConfig_InitRREQRetry;
+1414   1              NIB.RREQRetry = UserConfig_RREQREtry;
+1415   1              NIB.TxRetry = UserConfig_NwkTxRetry;
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 24  
+
+1416   1      
+1417   1              NIB.nwkNetBroadDeliverTime = UserConfig_BroadDeliverTime;
+1418   1              NIB.nwkLinkStatusPeriod = UserConfig_LinkStatusPeriod;
+1419   1              NIB.nwkTransPersisTime = UserConfig_TransPersistTime;
+1420   1              NIB.RouteDiscTime = UserConfig_RouteDiscTime;
+1421   1              NIB.WdtPeriod = UserConfig_WdtPeriod;
+1422   1              
+1423   1              NIB.JoinPriority = UserConfig_JoinPriority;
+1424   1              NIB.MaxLinkFail = UserConfig_MaxLinkFail;
+1425   1              NIB.MinValidLQI = UserConfig_MinValidLQI;
+1426   1              NIB.MinJoinLQI  = UserConfig_MinValidLQI;
+1427   1      
+1428   1      #ifdef __SECURED_WITH_PRECONFIGURED_NWK_KEY__
+                      SIB.PreconfigMode = 1;
+                      SIB.nwkSecurityLevel = ZBSEC_SUITE_CCM32;
+                      SIB.nwkActKeySeqNum = 0;
+                      SIB.nwkSecureAllFrame = 1;
+              
+                      _NwkSecMaterial.EnaSM = 1;
+                      _NwkSecMaterial.Key[15] = PRECONFIG_NWK_KEY_15;
+                      _NwkSecMaterial.Key[14] = PRECONFIG_NWK_KEY_14;
+                      _NwkSecMaterial.Key[13] = PRECONFIG_NWK_KEY_13;
+                      _NwkSecMaterial.Key[12] = PRECONFIG_NWK_KEY_12;
+                      _NwkSecMaterial.Key[11] = PRECONFIG_NWK_KEY_11;
+                      _NwkSecMaterial.Key[10] = PRECONFIG_NWK_KEY_10;
+                      _NwkSecMaterial.Key[9] = PRECONFIG_NWK_KEY_9;
+                      _NwkSecMaterial.Key[8] = PRECONFIG_NWK_KEY_8;
+                      _NwkSecMaterial.Key[7] = PRECONFIG_NWK_KEY_7;
+                      _NwkSecMaterial.Key[6] = PRECONFIG_NWK_KEY_6;
+                      _NwkSecMaterial.Key[5] = PRECONFIG_NWK_KEY_5;
+                      _NwkSecMaterial.Key[4] = PRECONFIG_NWK_KEY_4;
+                      _NwkSecMaterial.Key[3] = PRECONFIG_NWK_KEY_3;
+                      _NwkSecMaterial.Key[2] = PRECONFIG_NWK_KEY_2;
+                      _NwkSecMaterial.Key[1] = PRECONFIG_NWK_KEY_1;
+                      _NwkSecMaterial.Key[0] = PRECONFIG_NWK_KEY_0;
+                      _NwkSecMaterial.KeySeqNum = 0;
+                      _NwkSecMaterial.KeyType = aKT_StandNwk;
+                      memset(_NwkSecMaterial.OutFrameCnt, 0x00, 4);
+                      ZSEC_SetNwkSecMaterial(&_NwkSecMaterial);
+              #endif
+1456   1      
+1457   1      #ifdef __SECURED_WITHOUT_PRECONFIGURED_NWK_KEY__
+                      SIB.PreconfigMode = 2;
+                      SIB.nwkSecurityLevel = ZBSEC_SUITE_CCM32;
+                      SIB.nwkActKeySeqNum = 0;
+                      SIB.nwkSecureAllFrame = 1;
+              
+                      _NwkSecMaterial.EnaSM = 1;
+                      _NwkSecMaterial.Key[15] = TRUSTCENTER_NWK_KEY_15;
+                      _NwkSecMaterial.Key[14] = TRUSTCENTER_NWK_KEY_14;
+                      _NwkSecMaterial.Key[13] = TRUSTCENTER_NWK_KEY_13;
+                      _NwkSecMaterial.Key[12] = TRUSTCENTER_NWK_KEY_12;
+                      _NwkSecMaterial.Key[11] = TRUSTCENTER_NWK_KEY_11;
+                      _NwkSecMaterial.Key[10] = TRUSTCENTER_NWK_KEY_10;
+                      _NwkSecMaterial.Key[9] = TRUSTCENTER_NWK_KEY_9;
+                      _NwkSecMaterial.Key[8] = TRUSTCENTER_NWK_KEY_8;
+                      _NwkSecMaterial.Key[7] = TRUSTCENTER_NWK_KEY_7;
+                      _NwkSecMaterial.Key[6] = TRUSTCENTER_NWK_KEY_6;
+                      _NwkSecMaterial.Key[5] = TRUSTCENTER_NWK_KEY_5;
+                      _NwkSecMaterial.Key[4] = TRUSTCENTER_NWK_KEY_4;
+                      _NwkSecMaterial.Key[3] = TRUSTCENTER_NWK_KEY_3;
+                      _NwkSecMaterial.Key[2] = TRUSTCENTER_NWK_KEY_2;
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 25  
+
+                      _NwkSecMaterial.Key[1] = TRUSTCENTER_NWK_KEY_1;
+                      _NwkSecMaterial.Key[0] = TRUSTCENTER_NWK_KEY_0;
+                      _NwkSecMaterial.KeySeqNum = 0;
+                      _NwkSecMaterial.KeyType = aKT_StandNwk;
+                      memset(_NwkSecMaterial.OutFrameCnt, 0x00, 4);
+                      ZSEC_SetNwkSecMaterial(&_NwkSecMaterial);
+              #endif
+1485   1      
+1486   1      }
+1487          
+1488          
+1489          /***********************************************************************************
+1490           *
+1491           *      NAME            : ZUSER_ALLOCATE_NWKADDR()
+1492           *
+1493           *      DESCRIPTION     : Callback function called by the stack when a device requests to join by association.
+1494           *
+1495           *      PARAMETER       : 
+1496           *              pIEEE - pointer to IEEE address of a device to join
+1497           *              CapaInfo - Capability Information of a device to join
+1498           *
+1499           *      RETURN          : Network address to the device to join.
+1500           *              0x0000 ~ 0xFFF7 - network address that is allocated by the application.
+1501           *              0xFFF8 ~ 0xFFFF - The application does not allocate a network address. The stack does.
+1502           *
+1503           *      NOTES           : Allocation using this function is out of ZigBee specification.
+1504           *      
+1505           ***********************************************************************************/
+1506          UINT16 ZUSER_ALLOCATE_NWKADDR(UINT8 *pIEEE, UINT8 CapaInfo)
+1507          {
+1508   1              pIEEE = pIEEE;
+1509   1              CapaInfo = CapaInfo;
+1510   1      
+1511   1              return  0xFFFF;
+1512   1      
+1513   1              //---------------------------------------------
+1514   1              // Example : Allocaiton by the applicaton
+1515   1              //---------------------------------------------
+1516   1              #if 0
+                              UINT16  AllocatedNwkAddress;
+                              AllocatedNwkAddress = (pIEEE[1] << 8) | pIEEE[0];
+                              return AllocatedNwkAddress;     
+                      #endif
+1521   1              //---------------------------------------------
+1522   1      }
+1523          
+1524          /***********************************************************************************
+1525           *
+1526           *      NAME            : ZUSER_INTPR_DATA_IND()
+1527           *
+1528           *      DESCRIPTION     : Callback function called by the stack when a received packet's Frame Type 
+1529           *                      subfield in NWK Header's Frame Control field is 3, that means Inter-PAN type in 
+1530           *                      SE profile definition. In ZigBee specification, it means reserved.
+1531           *
+1532           *      PARAMETER       : pInd - pointer to MAC Data Service Indication primitive(MCPS_DATA_IND)
+1533           *
+1534           *      RETURN          : None
+1535           *
+1536           *      NOTES           : This function is only used in SE profile application.
+1537           *      
+1538           ***********************************************************************************/
+1539          void ZUSER_INTPR_DATA_IND(MCPS_DATA_IND *pInd)
+C51 COMPILER V9.00   Z_USER_ZC                                                             05/08/2012 16:12:20 PAGE 26  
+
+1540          {
+1541   1              pInd = pInd;
+1542   1      }
+1543          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =  10031    ----
+   CONSTANT SIZE    =   1061    ----
+   XDATA SIZE       =   4401     379
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1       2
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)
